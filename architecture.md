@@ -437,6 +437,7 @@ Examples:
 - Send Slack notification
 - Update CRM
 - Trigger workflow
+- Human in the loop
 
 
 Implementation:
