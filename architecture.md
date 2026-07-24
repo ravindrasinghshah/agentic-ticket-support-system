@@ -380,7 +380,7 @@ services/
 
    cockroach/
 
-   jira/
+   email/
 
 ```
 
