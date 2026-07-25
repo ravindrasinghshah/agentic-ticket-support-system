@@ -25,10 +25,11 @@ learning signal, not discarded failure.
 | Layer | Choice |
 |---|---|
 | Language | TypeScript, everywhere (app, Lambdas, IaC) |
-| AI orchestration | Managed **Amazon Bedrock Agent** (supervisor) + action groups |
-| Specialist execution | AWS Lambda, one function per action group |
+| AI orchestration | **Amazon Bedrock AgentCore Runtime** hosting a TypeScript supervisor agent |
+| Specialist execution | AWS Lambda specialist-agent modules, exposed to the supervisor as AgentCore Gateway/MCP tools |
 | Entry point | Lambda **Function URL** (not API Gateway — avoids its 29 s integration timeout) |
-| Memory & data | **CockroachDB Cloud** — operational tables + distributed vector index |
+| Active agent memory | **Amazon Bedrock AgentCore Memory** — session-scoped workflow state owned by the supervisor and supplied to specialist calls when needed |
+| Durable memory & data | **CockroachDB Cloud** — operational system of record + distributed vector index |
 | Embeddings | Amazon **Titan Text Embeddings V2**, single model, single dimension |
 | Policy documents | S3, read-only |
 | Observability | CloudWatch structured logs |
@@ -55,35 +56,46 @@ learning signal, not discarded failure.
     │ POST ticket_id
     ▼
  ticket-handler Lambda (Function URL)
-    │ InvokeAgent (sessionId = conversation_id)
+    │ InvokeAgentRuntime (sessionId = conversation_id)
     ▼
- Amazon Bedrock Agent — Orchestrator / Supervisor
+ Bedrock AgentCore Runtime — TypeScript Orchestrator / Supervisor
+    │       │
+    │       └── AgentCore Memory (conversation_id): active plan, tool outputs,
+    │           context-loaded flag, cycle count, and hand-off state
     │
-    ├── action group: context    ──► context Lambda    ─┐
-    ├── action group: tracking   ──► tracking Lambda    ├─► TicketDataPort ──► CockroachDB
-    ├── action group: refund     ──► refund Lambda      │      (SqlAdapter |      │
-    └── action group: dispute    ──► dispute Lambda    ─┘       McpAdapter)       │
+    └── AgentCore Gateway (MCP tools)
+         ├── context specialist Lambda    ─┐
+         ├── tracking specialist Lambda   ├─► TicketDataPort ──► CockroachDB
+         ├── refund specialist Lambda     │      (SqlAdapter |      │
+         └── dispute specialist Lambda    ─┘       McpAdapter)       │
                                         │                                         │
                                         ▼                                         ▼
                                    S3 (read-only                        vector index on
                                    policy documents)                    resolutions.embedding
 
- CloudWatch ◄── structured logs from every Lambda, keyed by ticket_id + conversation_id
+ CloudWatch ◄── structured logs from the AgentCore supervisor and every Lambda, keyed by ticket_id + conversation_id
 ```
 
-## 4. The agents
+## 4. The agents and memory
 
-One managed Bedrock Agent is the **Orchestrator**. It is a reasoning-action agent: it analyzes
-the ticket, forms a plan chasing the objective *"do I have everything I need to respond to this
-ticket and achieve resolution?"*, calls specialists to gather inputs, re-evaluates after every
-response, and either assembles a customer-friendly reply or escalates.
+The **TypeScript supervisor agent** runs in Amazon Bedrock AgentCore Runtime. It uses a Bedrock
+foundation model for reasoning: it analyzes the ticket, forms a plan chasing the objective *"do I
+have everything I need to respond to this ticket and achieve resolution?"*, calls specialists,
+re-evaluates after every response, and either assembles a customer-friendly reply or escalates.
 
-The four specialists are **action groups**, each backed by one Lambda. They are not separate
-Bedrock Agent resources.
+The supervisor uses **AgentCore Memory** for the active, session-scoped agent state keyed by
+`conversation_id`: the request and plan, context-loaded status, bounded cycle count, specialist
+outputs, and response hand-off. This is the working memory used while coordinating agents; it is
+not the durable business or learning-memory system of record. Tickets, conversation history,
+orchestration safety state, resolutions, and vectors remain in CockroachDB so they are queryable,
+auditable, and retained independently of an AgentCore session.
+
+The four specialists are Lambda-backed **agent modules**. AgentCore Gateway publishes them as MCP
+tools; the supervisor invokes those tools. They are not separate AgentCore Runtime supervisors.
 
 ### 4.1 Context agent — mandatory first call
 
-The orchestrator must call this before any other action group (enforcement in §5).
+The supervisor must call this before any other specialist tool (enforcement in §5).
 
 - **Tools:** ticket lookup, conversation history, resolution-embedding similarity search
 - **Input:** `ticket_id`, `conversation_id`
@@ -148,7 +160,8 @@ effect, not left to the LLM).
 
 ## 5. Orchestration contract — invariants and their enforcement
 
-The instruction prompt states all three rules below so the agent usually complies unaided. But
+The supervisor instruction prompt and AgentCore Memory state record all three rules below so the
+agent usually complies unaided. But
 prompts are requests, not guarantees — so each invariant also has a code-level backstop. The
 backstops are what get unit-tested.
 
@@ -157,13 +170,14 @@ backstops are what get unit-tested.
 
 | # | Invariant (diagram note) | Enforcement |
 |---|---|---|
-| 1 | Context agent is always called first (note 4) | Every specialist Lambda's first step: if `context_called_at IS NULL`, return a structured refusal — `{ "error": "CONTEXT_REQUIRED", "instruction": "Call the context action group first." }` — and do no work. The context Lambda stamps the timestamp. |
+| 1 | Context agent is always called first (note 4) | Supervisor reads/writes `contextLoaded` in AgentCore Memory and is instructed to call Context first. Every specialist Lambda's first step is the durable backstop: if `context_called_at IS NULL`, return `{ "error": "CONTEXT_REQUIRED", "instruction": "Call the context specialist first." }` and do no work. The context Lambda stamps the timestamp. |
 | 2 | At most 3 plan→call→evaluate cycles before escalating (note 10) | `cycle_count` increments on **every specialist (non-context) invocation**. A specialist invoked when `cycle_count >= 3` performs no work, sets `tickets.status = 'escalated'`, and returns `{ "error": "CYCLE_LIMIT", "instruction": "Escalate to a human and inform the customer." }`. *"Cycle" is defined as specialist invocations because that is the only thing a Lambda can observe — the closest enforceable proxy for the diagram's "plan call evaluate cycle."* |
-| 3 | Never force a resolution the system doesn't have (note 7) | Post-hoc safety net in `ticket-handler`: if the agent chain returns an empty/blank response, or finishes with the ticket still `open` and no verdict recorded, the handler sets `status = 'escalated'` and substitutes a "your ticket has been escalated to a human" reply. |
+| 3 | Never force a resolution the system doesn't have (note 7) | Post-hoc safety net in `ticket-handler`: if the AgentCore runtime returns an empty/blank response, or finishes with the ticket still `open` and no verdict recorded, the handler sets `status = 'escalated'` and substitutes a "your ticket has been escalated to a human" reply. |
 
-Conversation history persists with the orchestrator (Bedrock session, `sessionId =
-conversation_id`) and is passed to specialists on a need basis — specialists are otherwise
-stateless between invocations.
+The entry Lambda invokes the AgentCore runtime with `sessionId = conversation_id`. AgentCore
+Memory retrieves and persists the active coordination state for that session; relevant state is
+passed to specialists only when needed. Specialist Lambdas remain independently stateless between
+invocations and must rely on CockroachDB for durable safety and business state.
 
 ## 6. Deterministic policy rules
 
@@ -228,7 +242,8 @@ machine-readable parameters, so the two can never drift apart in separate files:
   edited policy therefore changes *both* the verdicts and the explanations, atomically.
 - **Refresh without redeploy.** The loader caches at module scope with a short TTL (default
   5 minutes) and revalidates by S3 ETag — editing a policy document takes effect within the TTL
-  on every warm Lambda, and immediately on cold starts. No code deploy, no agent re-preparation.
+  on every warm Lambda, and immediately on cold starts. No code deploy or supervisor-runtime
+  change.
 - **Validated on load, fail loudly.** `params` is schema-validated (zod); a missing or malformed
   field throws with the S3 key and field name rather than silently falling back to stale or
   default values. The last-known-good copy is kept in the module cache so a transient S3 failure
@@ -236,12 +251,11 @@ machine-readable parameters, so the two can never drift apart in separate files:
 - **Auditable verdicts.** Every verdict log line and every `resolutions` row records the policy
   `version` that produced it, so a decision can always be traced to the policy text in force at
   the time.
-- **The agent prompt stays policy-free.** The Bedrock Agent's baked instruction prompt contains
+- **The supervisor prompt stays policy-free.** The AgentCore supervisor's instruction prompt contains
   routing behavior only — *never* thresholds, windows, or amounts. All policy content reaches
   the LLM at request time through the specialist's response (verdict + current prose). This is
-  deliberate: updating a managed Agent's instructions requires `UpdateAgent` + `PrepareAgent`
-  (slow, versioned, easy to forget), so nothing that changes with policy edits is allowed to
-  live there.
+  deliberate: changing policy must be a content-only operation, not a supervisor deployment, so
+  nothing that changes with policy edits is allowed to live there.
 
 ## 7. Ticket lifecycle
 
@@ -412,8 +426,8 @@ CockroachDB's vector index is **public preview** — fine to build on, not to pr
   an interface so unit tests mock them, TTL-cached at module scope. Lambdas get `s3:GetObject`
   on this bucket and nothing else. Editing a document in S3 is the supported way to change
   policy — no deploy involved.
-- **CloudWatch** — every Lambda emits structured JSON logs carrying `ticket_id`,
-  `conversation_id`, action group name, verdict/reason codes, and latency. No free-text-only
+- **CloudWatch** — the AgentCore supervisor and every Lambda emit structured JSON logs carrying
+  `ticket_id`, `conversation_id`, specialist tool name, verdict/reason codes, and latency. No free-text-only
   log lines on the request path.
 
 ## 12. Refinements & rationale — every deviation from the diagram
@@ -423,7 +437,7 @@ verbatim.
 
 | # | Deviation | Why |
 |---|---|---|
-| 1 | Invariants (context-first, 3-cycle cap) enforced by Lambda guards over `orchestration_state`, not just the agent prompt | A managed Bedrock Agent can only be asked, not forced; prompt-only rules are untestable. §5 |
+| 1 | Invariants (context-first, 3-cycle cap) enforced by Lambda guards over `orchestration_state`, not just the supervisor prompt or AgentCore Memory | The AgentCore supervisor can be instructed and keep active state, but that alone cannot enforce durable business invariants; prompt-only rules are untestable. §5 |
 | 2 | Refund/dispute rules are pure TypeScript functions, **parameterized by values loaded from the S3 policy documents**; the LLM only explains verdicts | Notes 17–18 are precise financial rules; LLMs get boundary cases wrong. Parameterization keeps the editable documents as the single source of truth while keeping enforcement deterministic and exhaustively testable. §6, §6.3 |
 | 3 | `order_history` gains `order_value_cents`, `shipped_at`, `received_at`; `tickets` gains `order_id` | The diagram's own refund rules reference order value, ship state, and days-since-received — unanswerable from its four columns. §10 |
 | 4 | Status enum extended with `awaiting_customer` and `unresolved` | Note 12 requires an unresolved outcome; accept/reject needs an awaiting state. Human queue = `escalated ∪ unresolved`. §7 |
@@ -435,7 +449,7 @@ verbatim.
 | 10 | Accept/reject/human-reply handled by Next.js server routes calling shared package functions | The diagram has no write path for these events; routes reuse the same tested code the Lambdas use, with no extra Lambda. §9 |
 | 11 | One embedding model (Titan V2), dimension as a shared constant, runtime length assertion | The diagram names no embedding model; mixing models or dimensions silently corrupts similarity search. §9 |
 | 12 | `escalate` verdicts set `tickets.status` in the specialist Lambda itself | Status changes are deterministic side effects of deterministic verdicts — not left to the LLM to remember to do. §4 |
-| 13 | Policy documents are JSON (prose + params) with TTL/ETag refresh; the agent's baked instruction prompt carries no policy values | Policy docs get edited over time; verdicts and explanations must track the current document without redeploys or Agent re-preparation. Every verdict records the policy version that produced it. §6.3 |
+| 13 | Policy documents are JSON (prose + params) with TTL/ETag refresh; the supervisor prompt carries no policy values | Policy docs get edited over time; verdicts and explanations must track the current document without a deploy or supervisor-runtime code change. Every verdict records the policy version that produced it. §6.3 |
 
 ## 13. Out of scope — deliberately
 
@@ -443,5 +457,5 @@ verbatim.
 - Email intake or outbound email
 - RBAC (single shared password for the queue; per-ticket tokens for customers)
 - Real payment/refund execution — verdicts are recorded and communicated, no money moves
-- Bedrock multi-agent collaboration (one supervisor Agent + action groups only)
+- Additional AgentCore supervisor runtimes or peer-to-peer multi-agent collaboration (this design has one supervisor and Lambda specialist tools only)
 - Production hardening: multi-region, rate limiting, PII handling beyond the demo dataset
