@@ -23,7 +23,8 @@ and duplicating them here would only create drift. Live day-to-day status belong
 This is a hackathon entry for **CockroachDB × AWS — "Build the Future of Agentic Memory."** The
 entire original design is a hand-drawn whiteboard diagram,
 [agentic-ticket-system.png](agentic-ticket-system.png): a supervisor/specialist agent system on
-Amazon Bedrock, using CockroachDB as long-term agent memory via distributed vector indexing.
+Amazon Bedrock, using AgentCore for active agent-session memory and CockroachDB as long-term
+agent memory via distributed vector indexing.
 
 The diagram is a sound design, but it is not directly executable. It has blank sections, omits the
 embedding model and the deployment story, and — most importantly — **specifies business rules its
@@ -48,7 +49,9 @@ provisioning. Instead it splits in two:
 
 | Decision | Choice |
 |---|---|
-| Orchestrator | Managed **Amazon Bedrock Agent** + action groups (one Lambda per specialist) |
+| Orchestrator | TypeScript supervisor deployed to **Amazon Bedrock AgentCore Runtime**; it calls Lambda specialist-agent modules through AgentCore Gateway/MCP tools |
+| Active agent memory | **Amazon Bedrock AgentCore Memory**, keyed by `conversation_id`, for the supervisor's plan, tool results, context status, cycle count, and response hand-off |
+| Durable learning memory | **CockroachDB Cloud** is the system of record for tickets, conversation history, safety state, resolutions, and resolution embeddings; AgentCore Memory is not the durable database |
 | IaC | **AWS CDK in TypeScript** |
 | Language | **TypeScript** throughout (per diagram note 2) |
 | UI | Minimal web app: public submit form + gated human queue |
@@ -66,11 +69,26 @@ These are the substantive deviations from the diagram. Everything else in it is 
 The full list also appears in [ARCHITECTURE.md](ARCHITECTURE.md) under *Refinements & rationale*,
 so it can be reviewed in one place and any item vetoed.
 
-### 1. Invariants enforced in the Lambda layer, not the agent prompt
+### 1. AgentCore is the supervisor runtime and active-memory layer
 
-A managed Bedrock Agent can only be *asked* via its instruction prompt to "always call context
-first" (note 4) and "escalate after 3 cycles" (note 10) — it cannot be forced, and prompt-only
-rules are untestable.
+The application contains a TypeScript supervisor agent deployed to **Amazon Bedrock AgentCore
+Runtime**, not a managed Bedrock Agent with action groups. The supervisor calls the Context,
+Tracking, Refund, and Dispute Lambda modules through **AgentCore Gateway** as MCP tools. The Lambda
+Function URL is only the UI/API entry point: it validates the request, invokes the AgentCore runtime
+with `sessionId = conversation_id`, and returns the runtime's final response.
+
+**AgentCore Memory** is the supervisor's working-memory service. It persists session-scoped state
+between runtime interactions: request/plan, context-loaded status, specialist results, cycle count,
+and hand-off information. It does not replace CockroachDB. CockroachDB remains the durable source
+of truth and learning-memory store, including `orchestration_state`, tickets, messages,
+resolutions, and embeddings. Lambda safeguards always read the durable state, not only AgentCore
+Memory.
+
+### 2. Invariants enforced in the Lambda layer, not the agent prompt
+
+The AgentCore-hosted supervisor can be instructed, and can persist its plan in AgentCore Memory, to
+"always call context first" (note 4) and "escalate after 3 cycles" (note 10). That still is not a
+guarantee: prompt-only and session-memory-only rules are untestable and non-durable.
 
 **Fix:** an `OrchestrationState` row per `(ticket_id, conversation_id)` tracks `context_called_at`
 and `cycle_count`. Every specialist Lambda checks it before doing any work:
@@ -81,7 +99,7 @@ and `cycle_count`. Every specialist Lambda checks it before doing any work:
 The instruction prompt still states both rules, so the agent usually complies unaided. The guard is
 the backstop that makes them *true* — and unit-testable.
 
-### 2. Policy thresholds are deterministic TypeScript, never LLM judgment
+### 3. Policy thresholds are deterministic TypeScript, never LLM judgment
 
 Diagram notes 17–18 are precise financial rules: $300 boundaries, 7-day and 30-day windows,
 specific order statuses. An LLM asked to apply these will get boundary cases wrong.
@@ -91,13 +109,13 @@ specific order statuses. An LLM asked to apply these will get boundary cases wro
 verdict in friendly prose. And because the thresholds live in the **editable S3 policy documents**,
 not in code, each document pairs its prose with a machine-readable `params` block: the Lambda loads
 it (TTL + ETag cached), feeds `params` to the engine and `prose` to the LLM — so editing a policy
-document changes verdicts and explanations atomically, with no redeploy and no Bedrock Agent
-re-preparation (the baked agent prompt deliberately contains no policy values). Every verdict
+document changes verdicts and explanations atomically, with no redeploy and no supervisor runtime
+code change (the supervisor prompt deliberately contains no policy values). Every verdict
 records the policy version that produced it. This is the highest-value correctness decision in the
 build, and the engines themselves need no configuration — fully buildable and provable on day one
 against v1 default params.
 
-### 3. `OrderHistory` needs columns the diagram omits
+### 4. `OrderHistory` needs columns the diagram omits
 
 The diagram gives `id, customer_id, status, created_at`. But its own refund rules need order value
 ("< $300"), ship state, and days-since-received ("within 30 days of order received") — all
@@ -122,9 +140,9 @@ ticket can be tied to the order under dispute.
   selected by `DB_ACCESS_MODE`. The unknown becomes a config flip during activation instead of a
   gate. Either way, the web app's list/detail reads use direct pooled SQL — MCP is the agent's tool
   surface, not a CRUD API.
-- **"Cycle" made enforceable.** Diagram note 10 caps the orchestrator at three "plan call evaluate"
+- **"Cycle" made enforceable.** Diagram note 10 caps the supervisor at three "plan call evaluate"
   cycles, but a Lambda guard cannot observe the agent's internal planning — only its calls. So:
-  `cycle_count` = number of specialist (non-context) action-group invocations for the ticket,
+  `cycle_count` = number of specialist (non-context) tool invocations for the ticket,
   capped at 3. The closest observable proxy for the diagram's intent, and unit-testable.
 - **Per-ticket access token.** `Tickets.access_token` (generated at submit, returned in the ticket
   URL) gates the customer's view/accept/reject routes, since they are public and unauthenticated.
@@ -150,12 +168,14 @@ convention buried in a README. Full manifest in [docs/CONFIGURATION.md](docs/CON
   AWS or database call and surface as a confusing downstream error.
 - **`pnpm check:config`** scans for unreplaced placeholders and prints what is outstanding and where
   to get each one. The activation checklist, executable.
-- **Every external boundary is an interface with a mock** — Bedrock runtime, Bedrock agent runtime,
-  embeddings, S3 policy documents, and the data port. Unit tests bind mocks, so `pnpm test` is
+- **Every external boundary is an interface with a mock** — Bedrock model runtime, AgentCore runtime,
+  AgentCore Memory/Gateway tool clients, embeddings, S3 policy documents, and the data port. Unit
+  tests bind mocks, so `pnpm test` is
   fully green with zero credentials and zero network access.
 
-Placeholders group into: **Bedrock** (region, orchestrator model ID, embedding model ID, embedding
-dimensions, agent ID, agent alias ID — the last two only exist post-deploy); **CockroachDB**
+Placeholders group into: **Bedrock/AgentCore** (region, supervisor model ID, embedding model ID,
+embedding dimensions, AgentCore runtime ARN, AgentCore Memory resource ID, AgentCore Gateway URL,
+and Gateway authentication configuration — created at deploy); **CockroachDB**
 (database URL, SSL root cert, `DB_ACCESS_MODE`, MCP endpoint, MCP API key); **other AWS** (account
 ID, S3 policy bucket, policy document keys, ticket-handler Function URL, web app shared password).
 Note the web app's server routes need the database URL and Bedrock credentials in their environment
@@ -167,10 +187,11 @@ at activation — they write status changes and call the embedding model directl
 packages/core/       config.ts (placeholders), logging, domain types, embedding-dimension constant
 packages/policy/     evaluateRefund / evaluateDispute — pure, zero deps, zero config
 packages/db/         migrations/, pooled connection, TicketDataPort + SqlAdapter + McpAdapter, seed
-packages/agents/     Bedrock + embedding clients behind interfaces, retrieval, action-group envelopes
-lambdas/             ticket-handler, context, tracking, refund, dispute
+packages/agents/     Bedrock model + AgentCore runtime/memory/gateway clients behind interfaces, retrieval, MCP tool contracts
+agentcore/           TypeScript supervisor agent application and AgentCore deployment configuration
+lambdas/             ticket-handler (Function URL), context, tracking, refund, dispute
 apps/web/            submit form, gated queue, ticket detail, accept / reject-with-comments
-infra/cdk/           Agent + action groups + Lambdas + S3 + IAM, driven by cdk.context.json
+infra/cdk/           AgentCore Runtime/Memory/Gateway + Lambdas + S3 + IAM, driven by cdk.context.json
 docs/                BUILD-INSTRUCTIONS, CONFIGURATION, TESTING, PROGRESS
 ```
 
@@ -189,10 +210,10 @@ Ordered so the zero-config, highest-value work lands first.
 | **CP0** | All docs. Monorepo scaffold, TS, Vitest, `config.ts` with the full placeholder set, `.env.example`, `pnpm check:config`. | `pnpm test` green on an empty suite; `check:config` lists every outstanding placeholder |
 | **CP1** | `packages/policy` — refund + dispute engines, parameterized by `PolicyParams`; the `params`-block schema and v1 default policy documents (prose + params JSON). | Exhaustive boundary tests: $299/$300/$301, day 6/7/8, day 29/30/31, every order status — plus tests proving changed params change verdicts. Zero LLM calls, zero I/O in the package |
 | **CP2** | `packages/db` — migration SQL for all tables + vector index, pooled connection module, `TicketDataPort`, `SqlAdapter`, `McpAdapter`, seed script covering every policy boundary. Written, not yet run live. | Unit tests against a mocked port; migrations parse; seed idempotent by construction |
-| **CP3** | `packages/agents` — Bedrock + Titan clients behind interfaces, embedding write path, similarity search with type filter, ordering and `LIMIT`, dimension assertion. | Unit tests with mocked Bedrock; a fake-embedding retrieval test proves ranking logic |
-| **CP4** | Four specialist Lambdas with action-group envelopes, the **context-first guard**, the **cycle counter**, and the policy-document loader (S3 behind an interface, TTL + ETag cache, zod-validated params, last-known-good fallback). | Per-handler unit tests with mocks; guard tests prove refusal and forced escalation at cycle 3; loader tests prove refresh-on-edit and loud failure on malformed params |
-| **CP5** | `ticket-handler` Lambda (`InvokeAgent` behind an interface) + the post-hoc safety net (empty/unresolved response → escalate). Learning-loop write path as shared package functions — accept, reject-with-comments, and human reply all persist + embed — consumed later by the web app's server routes. | Unit tests drive a fully mocked ticket through resolve, reject, and escalate paths |
-| **CP6** | `infra/cdk` — Agent resource, instruction prompt encoding plan→evaluate→escalate, action groups with OpenAPI schemas, Lambdas, S3, IAM. Placeholder context values. | `cdk synth` succeeds against `cdk.context.template.json` and emits a valid template — no deploy, no account needed |
+| **CP3** | `packages/agents` — Bedrock model, AgentCore runtime/memory/gateway clients, and Titan clients behind interfaces; embedding write path, similarity search with type filter, ordering and `LIMIT`, dimension assertion. | Unit tests with mocked Bedrock/AgentCore clients; a fake-embedding retrieval test proves ranking logic |
+| **CP4** | Four specialist Lambdas exposed as AgentCore Gateway/MCP tools, the **context-first guard**, the **cycle counter**, and the policy-document loader (S3 behind an interface, TTL + ETag cache, zod-validated params, last-known-good fallback). | Per-handler unit tests with mocks; tool-contract tests; guard tests prove refusal and forced escalation at cycle 3; loader tests prove refresh-on-edit and loud failure on malformed params |
+| **CP5** | AgentCore TypeScript supervisor with a Bedrock model client, AgentCore Memory state contract, Gateway/MCP tool client, and plan→evaluate→escalate behavior. `ticket-handler` Function URL Lambda invokes the runtime (`InvokeAgentRuntime` behind an interface) and provides the post-hoc safety net (empty/unresolved response → escalate). Learning-loop write path as shared package functions — accept, reject-with-comments, and human reply all persist + embed — consumed later by the web app's server routes. | Unit tests drive a fully mocked ticket through context, specialist calls, resolve, reject, and escalate paths; tests prove AgentCore Memory is used for active state while durable guards use `orchestration_state` |
+| **CP6** | `infra/cdk` + AgentCore deployment configuration — AgentCore Runtime supervisor, AgentCore Memory, AgentCore Gateway/MCP Lambda targets, Function URL Lambda, S3, and least-privilege IAM. Placeholder context values. | `cdk synth` and AgentCore configuration validation succeed against placeholder configuration — no deploy, no account needed |
 | **CP7** | `apps/web` (Next.js) — submit form with email match + order picker, wait-on-page reply view, token-gated customer routes, gated human queue (`escalated`/`unresolved`), detail view. Server routes wire accept / reject-with-comments / human reply to the CP5 package functions. Against a mocked backend. | Builds; component tests cover accept and reject-with-comment submission; a route test proves a wrong token is refused |
 
 ### Phase B — activation
@@ -201,8 +222,8 @@ The first point real credentials are needed.
 
 | CP | Scope | Verified by |
 |---|---|---|
-| **CP8** | **Repo owner (human):** AWS account, Bedrock model access, CockroachDB Cloud cluster. Then resolve real model IDs, fill every placeholder, run migrations + seed, and settle `DB_ACCESS_MODE` by trying `McpAdapter` and falling back to SQL. | `pnpm check:config` clean; `pnpm test:integration` green against the real cluster, including a paraphrase retrieving a seeded resolution top-1 |
-| **CP9** | `cdk deploy`. Wire the Function URL into the web app. End-to-end runs. | `curl` a tracking question → resolved; an out-of-policy refund → escalated; resolve ticket A then submit similar ticket B and assert context retrieved A; manual pass of submit → reject with comment → queue → human reply → resolved |
+| **CP8** | **Repo owner (human):** AWS account, Bedrock model access, AgentCore service permissions, and CockroachDB Cloud cluster. Then resolve real model IDs, fill every placeholder, deploy the AgentCore supervisor/Memory/Gateway prerequisites, run migrations + seed, and settle `DB_ACCESS_MODE` by trying `McpAdapter` and falling back to SQL. | `pnpm check:config` clean; direct AgentCore CLI invocation succeeds; `pnpm test:integration` green against the real cluster, including a paraphrase retrieving a seeded resolution top-1 |
+| **CP9** | Deploy the Function URL Lambda and remaining CDK resources. Wire the Function URL into the web app. End-to-end runs. | `curl` reaches the Function URL, which invokes AgentCore; a tracking question is resolved; an out-of-policy refund is escalated; resolve ticket A then submit similar ticket B and assert context retrieved A; manual pass of submit → reject with comment → queue → human reply → resolved |
 | **CP10** | *(cut line)* CloudWatch structured logs with correlation IDs, latency/cost notes, demo runbook, `cdk destroy` teardown. | Runbook executes start-to-finish; teardown leaves no billable resources |
 
 **Cut lines.** If time runs short: CP10 degrades to structured logging plus a written runbook, and
