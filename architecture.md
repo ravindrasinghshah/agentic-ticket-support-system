@@ -24,17 +24,17 @@ learning signal, not discarded failure.
 
 | Layer | Choice |
 |---|---|
-| Language | TypeScript, everywhere (app, Lambdas, IaC) |
+| Language | TypeScript, everywhere (app, Lambdas, supervisor) |
 | AI orchestration | **Amazon Bedrock AgentCore Runtime** hosting a TypeScript supervisor agent |
 | Specialist execution | AWS Lambda specialist-agent modules, exposed to the supervisor as AgentCore Gateway/MCP tools |
 | Entry point | Lambda **Function URL** (not API Gateway — avoids its 29 s integration timeout) |
 | Active agent memory | **Amazon Bedrock AgentCore Memory** — session-scoped workflow state owned by the supervisor and supplied to specialist calls when needed |
 | Durable memory & data | **CockroachDB Cloud** — operational system of record + distributed vector index |
-| Embeddings | Amazon **Titan Text Embeddings V2**, single model, single dimension |
+| Embeddings | **Model to be specified by the user at Gate 6 — do not assume one.** Whichever is chosen: exactly one model, one dimension, enforced by a shared constant and a runtime length assertion |
 | Policy documents | S3, read-only |
 | Observability | CloudWatch structured logs |
 | Web app | Next.js — public submit flow + gated human queue |
-| IaC | AWS CDK (TypeScript) |
+| Provisioning | **Manual** — AWS console / CLI, following a written runbook. No IaC (deliberate hackathon scope; see §13). Verified by `pnpm doctor`, never created by it |
 | Monorepo | pnpm workspaces, Vitest |
 
 ## 3. Component map
@@ -326,18 +326,72 @@ server routes):
 | Customer rejects | ticket → `unresolved`; `resolutions` row: `outcome='unresolved'`, `source='agent'`, `rejection_comments` = customer's stated reason → **embed** |
 | Human replies | ticket → `resolved`; `conversation_history` row (`role='human_agent'`); `resolutions` row: `outcome='resolved'`, `source='human'` → **embed** |
 
-**Embed** = summarize the ticket + conversation + outcome into `resolutions.content`, generate a
-Titan V2 embedding, store it in `resolutions.embedding`. Both good and bad outcomes are embedded
-(diagram note 13) — the rejection comments are the system's richest learning signal.
+**Embed** = summarize the ticket + conversation + outcome into `resolutions.content`, generate an
+embedding with the **user-specified embedding model** (§9.2), store it in `resolutions.embedding`. Both
+good and bad outcomes are embedded (diagram note 13) — the rejection comments are the system's richest
+learning signal.
 
 **Retrieval** (context agent): cosine similarity via the CockroachDB vector index, always with a
 `LIMIT` (default 5), ordered by similarity with recency as tiebreak. Optional filters on
 `outcome`/`source` (e.g. the dispute specialist prefers `outcome='resolved'` precedents).
 Unbounded or unfiltered scans of the embedding column are forbidden.
 
-**Dimension safety:** `EMBEDDING_DIM` is a single exported constant in `packages/core`, consumed
-by the DDL and the embedding client, and asserted against the actual returned vector length on
-every embed call — a model swap fails fast instead of silently corrupting the table.
+### 9.2 The embedding model is user-specified — never assumed
+
+**The embedding model is an open decision, supplied by the user at Gate 6.** Do not select one, and do
+not default to a familiar option. Until it is specified, the model identifier and the vector dimension
+are **placeholders** (`REPLACE_ME`), and any dimension appearing in this document — including
+`VECTOR(1024)` in §10 — is **illustrative only**.
+
+What is fixed regardless of which model is chosen:
+
+- **Exactly one model, one dimension, for the entire `resolutions` table.** Vectors from different
+  models are not comparable; mixing them silently corrupts similarity search rather than erroring.
+  There is no migration path short of re-embedding every row, so this is decided once.
+- **`EMBEDDING_DIM` is a single exported constant** in `packages/core`, consumed by *both* the DDL and
+  the embedding client — never written twice.
+- **Runtime length assertion on every embed call**, comparing the actual returned vector length against
+  `EMBEDDING_DIM`, so a model or dimension change fails fast instead of writing corrupt data.
+- **CockroachDB stores and searches vectors; it does not generate them.** The chosen model — Bedrock-
+  hosted or otherwise — produces them, behind an `EmbeddingClient` interface so the provider is swappable
+  without touching retrieval logic.
+
+Three things must be captured when the user specifies the model: its **identifier**, its **output
+dimension**, and — if the model supports several dimensions — **which one to use**.
+
+### 9.1 Two memory writes, deliberately separate
+
+Closing a conversation writes **two different records**, and conflating them would break retrieval:
+
+| | `resolutions` (the embedding) | `agent_runs` (the reasoning trace) |
+|---|---|---|
+| Answers | *What was the problem, and how was it solved?* | *How did the supervisor get there?* |
+| Contents | Ticket + conversation + outcome summary, vectorized | Plan formed, specialists consulted in order, verdicts, reason codes, policy version, cycles used |
+| Role in search | **Is** the search surface — what similarity matches against | Retrieved **alongside** a match; never part of matching |
+
+The trace must **never** be folded into `resolutions.content` or `resolutions.embedding`. The
+embedding's job is to represent the customer's problem; mixing in which internal tools happened to
+be called would push two tickets with *identical problems but different tool paths* apart in vector
+space, degrading the very retrieval the learning loop depends on.
+
+Why keep the trace at all:
+
+- **Human queue speed (primary).** A human picking up a rejected or escalated ticket sees
+  *"consulted Tracking (shipped 9 days ago) → Refund → `REFUND_POLICY_ESCALATION` under policy v3,
+  because 9 days exceeds the 7-day pre-shipment window"* instead of re-deriving it. No AI required.
+- **Debuggability.** CloudWatch logs expire and can't be queried next to a ticket; this can.
+- **Cycle efficiency (secondary).** Over time, evidence that a given ticket shape wastes a
+  specialist call — which matters against a hard 3-cycle cap. A bonus, not the justification.
+
+Two guardrails:
+
+1. **The guards never read the trace.** `orchestration_state` remains the sole authority for
+   context-first and cycle-cap enforcement (§5). `agent_runs` is write-only from the agent's
+   perspective — an archive, not a source of truth. Reading it for control decisions would
+   reintroduce the two-sources-of-truth problem the durable guards exist to prevent.
+2. **Best-effort, off the critical path.** A failed trace insert must never invalidate a ticket
+   outcome or block the customer's reply. Store a **structured summary, not raw tool blobs** — the
+   underlying order and ticket records already live in their own tables.
 
 ## 10. Data model
 
@@ -394,6 +448,19 @@ CREATE TABLE orchestration_state (            -- [added] invariant enforcement, 
   PRIMARY KEY (ticket_id, conversation_id)
 );
 
+CREATE TABLE agent_runs (                     -- [added] reasoning trace / audit archive, §9.1
+  ticket_id        UUID NOT NULL REFERENCES tickets(id),
+  conversation_id  UUID NOT NULL,            -- same key as orchestration_state
+  plan_summary     STRING NOT NULL,          -- what the supervisor decided to do
+  steps            JSONB NOT NULL,           -- [{ tool, reasonCode, policyVersion, ms }, ...]
+  cycles_used      INT NOT NULL,
+  outcome          STRING NOT NULL,          -- 'resolved' | 'unresolved' | 'escalated'
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (ticket_id, conversation_id)
+);
+-- Write is BEST-EFFORT and off the critical path: a failed insert here must never
+-- invalidate a ticket outcome. Never read by the §5 guards — archive only.
+
 CREATE TABLE resolutions (                    -- materializes the diagram's "Resolution embeddings"
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   ticket_id           UUID NOT NULL REFERENCES tickets(id),
@@ -401,7 +468,10 @@ CREATE TABLE resolutions (                    -- materializes the diagram's "Res
   outcome             STRING NOT NULL,        -- 'resolved' | 'unresolved'
   source              STRING NOT NULL,        -- 'agent' | 'human'
   rejection_comments  STRING NULL,            -- [added] customer's stated reason — key learning signal
-  embedding           VECTOR(1024) NOT NULL,  -- dimension = EMBEDDING_DIM constant; Titan V2 only
+  embedding           VECTOR(<EMBEDDING_DIM>) NOT NULL,
+                      -- ILLUSTRATIVE dimension only. The embedding model is user-specified at
+                      -- Gate 6 (§9.2); its output dimension sets EMBEDDING_DIM. One model,
+                      -- one dimension, for every row — never mix.
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -447,9 +517,10 @@ verbatim.
 | 8 | `tickets.access_token` gating public customer routes | Not in the diagram, but without it anyone could read or act on anyone's ticket. §8 |
 | 9 | Submit flow: email match + order picker populates `tickets.order_id` | The diagram never says how a ticket ties to a customer/order; picking deterministically keeps order identification out of LLM judgment. §8 |
 | 10 | Accept/reject/human-reply handled by Next.js server routes calling shared package functions | The diagram has no write path for these events; routes reuse the same tested code the Lambdas use, with no extra Lambda. §9 |
-| 11 | One embedding model (Titan V2), dimension as a shared constant, runtime length assertion | The diagram names no embedding model; mixing models or dimensions silently corrupts similarity search. §9 |
+| 11 | Exactly one embedding model and one dimension, as a shared constant with a runtime length assertion — **the model itself is user-specified at Gate 6, never assumed** | The diagram names no embedding model, and picking one silently would bake an unreviewed decision into every stored vector. Mixing models or dimensions corrupts similarity search without erroring, and there is no fix short of re-embedding every row. §9.2 |
 | 12 | `escalate` verdicts set `tickets.status` in the specialist Lambda itself | Status changes are deterministic side effects of deterministic verdicts — not left to the LLM to remember to do. §4 |
 | 13 | Policy documents are JSON (prose + params) with TTL/ETag refresh; the supervisor prompt carries no policy values | Policy docs get edited over time; verdicts and explanations must track the current document without a deploy or supervisor-runtime code change. Every verdict records the policy version that produced it. §6.3 |
+| 14 | Supervisor reasoning trace persisted to a dedicated `agent_runs` table — **never** folded into `resolutions.embedding` | AgentCore Memory is session-scoped, so *why* the agent acted is lost when a conversation ends. Keeping it: a human in the queue reads the escalation reason instead of re-deriving it (primary win); traces stay queryable next to a ticket after CloudWatch logs expire; and over time they expose wasted specialist calls against the 3-cycle cap. Kept **out** of the embedding because tool-path data in the similarity vector would separate tickets with identical customer problems, degrading retrieval. Guarded: `orchestration_state` remains the sole control authority, and the write is best-effort off the critical path. §9.1, §10 |
 
 ## 13. Out of scope — deliberately
 
@@ -458,4 +529,9 @@ verbatim.
 - RBAC (single shared password for the queue; per-ticket tokens for customers)
 - Real payment/refund execution — verdicts are recorded and communicated, no money moves
 - Additional AgentCore supervisor runtimes or peer-to-peer multi-agent collaboration (this design has one supervisor and Lambda specialist tools only)
+- **Infrastructure as code.** Resources are provisioned **by hand** from a written runbook and
+  *verified* by `pnpm doctor`. Accepted consequences: rebuilds are manual, environments can drift from
+  the runbook, and teardown is a checklist rather than one command. `pnpm doctor` is the mitigation —
+  it is the executable statement of what the infrastructure is supposed to look like, so drift is
+  detected even though it isn't prevented
 - Production hardening: multi-region, rate limiting, PII handling beyond the demo dataset
