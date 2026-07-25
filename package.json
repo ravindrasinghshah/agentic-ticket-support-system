@@ -1,0 +1,16 @@
+{
+  "name": "agentic-ticket-support-system",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "AgentcoreHealthcheck/app/HealthcheckAgent",
+    "lambdas/agentcore-healthcheck",
+    "infra/agentcore-healthcheck"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspace @ticket-support/agentcore-healthcheck-lambda",
+    "test:agent": "npm run test --workspace @ticket-support/healthcheck-agent",
+    "synth:healthcheck": "npm run synth --workspace @ticket-support/agentcore-healthcheck-infra"
+  }
+}
