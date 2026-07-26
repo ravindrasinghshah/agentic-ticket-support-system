@@ -1,0 +1,7 @@
+packages:
+  - 'packages/*'
+  - 'tools/*'
+
+# esbuild ships prebuilt binaries and needs its install script to run; vitest depends on it.
+allowBuilds:
+  esbuild: true

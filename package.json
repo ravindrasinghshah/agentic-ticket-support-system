@@ -1,0 +1,31 @@
+{
+  "name": "agentic-ticket-support-system",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "doctor": "tsx tools/doctor/src/cli.ts",
+    "check:config": "tsx tools/doctor/src/cli.ts --only config-placeholders",
+    "test": "vitest run",
+    "test:gate": "node ./scripts/test-gate.mjs",
+    "test:integration": "node ./scripts/test-integration.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/pg": "^8.20.0",
+    "tsx": "^4.23.1",
+    "typescript": "5.9.3",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@ats/agents": "workspace:*",
+    "@ats/core": "workspace:*",
+    "@ats/db": "workspace:*",
+    "@ats/doctor": "workspace:*"
+  }
+}
