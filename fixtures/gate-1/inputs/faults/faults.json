@@ -1,0 +1,101 @@
+{
+  "$comment": "Error payloads injected into doctor probes so every remediation path is exercised without touching real infrastructure. `name` is the AWS SDK error code (SDK errors carry it on .name); `code` is a SQLSTATE or Node errno for the pg probe. See ../../README.md.",
+
+  "expired-credentials": {
+    "name": "ExpiredTokenException",
+    "message": "The security token included in the request is expired",
+    "injectInto": "sts.getCallerIdentity",
+    "remediationMustMention": ["aws sso login", "aws configure"]
+  },
+
+  "wrong-account": {
+    "$comment": "Not an error — a successful call resolving to the wrong account.",
+    "returns": { "account": "999999999999", "arn": "arn:aws:iam::999999999999:user/someone-else" },
+    "injectInto": "sts.getCallerIdentity",
+    "remediationMustMention": ["AWS_PROFILE", "AWS_ACCOUNT_ID"]
+  },
+
+  "denied-supervisor-model": {
+    "name": "AccessDeniedException",
+    "message": "You don't have access to the model with the specified model ID.",
+    "injectInto": "bedrock.invokeSmallest",
+    "remediationMustMention": ["Model access", "bedrock:InvokeModel"]
+  },
+
+  "invalid-model-id": {
+    "name": "ValidationException",
+    "message": "The provided model identifier is invalid.",
+    "injectInto": "bedrock.invokeSmallest",
+    "remediationMustMention": ["list-foundation-models", "BEDROCK_SUPERVISOR_MODEL_ID"]
+  },
+
+  "agentcore-region-unavailable": {
+    "name": "UnknownEndpoint",
+    "message": "No endpoint for bedrock-agentcore-control in region eu-west-3",
+    "injectInto": "agentcore.listAgentRuntimes",
+    "remediationMustMention": ["AgentCore is not available", "AWS_REGION"]
+  },
+
+  "missing-bucket": {
+    "name": "NoSuchBucket",
+    "message": "The specified bucket does not exist",
+    "injectInto": "s3.listObjects",
+    "remediationMustMention": ["S3_POLICY_BUCKET", "s3 mb"]
+  },
+
+  "missing-probe-object": {
+    "name": "NoSuchKey",
+    "message": "The specified key does not exist.",
+    "injectInto": "s3.getObject",
+    "remediationMustMention": ["_doctor-probe.json", "GetObject"]
+  },
+
+  "denied-get-object": {
+    "name": "AccessDenied",
+    "message": "Access Denied",
+    "injectInto": "s3.getObject",
+    "remediationMustMention": ["s3:GetObject"]
+  },
+
+  "cockroach-cert-missing": {
+    "code": "ENOENT",
+    "message": "ENOENT: no such file or directory, open 'certs/cc-ca.crt'",
+    "injectInto": "cockroach.connect",
+    "remediationMustMention": ["COCKROACH_SSL_ROOT_CERT", "cc-ca.crt"]
+  },
+
+  "cockroach-bad-password": {
+    "code": "28P01",
+    "message": "password authentication failed for user \"ats\"",
+    "injectInto": "cockroach.connect",
+    "remediationMustMention": ["SQL Users", "COCKROACH_DATABASE_URL"]
+  },
+
+  "cockroach-unreachable": {
+    "code": "ENOTFOUND",
+    "message": "getaddrinfo ENOTFOUND wrong-host.cockroachlabs.cloud",
+    "injectInto": "cockroach.connect",
+    "remediationMustMention": ["COCKROACH_DATABASE_URL", "Connect"]
+  },
+
+  "vector-unsupported": {
+    "code": "0A000",
+    "message": "at or near \"vector\": syntax error: unimplemented: this syntax",
+    "injectInto": "cockroach.query:CREATE TABLE",
+    "remediationMustMention": ["vector support", "version"]
+  },
+
+  "vector-index-unsupported": {
+    "code": "0A000",
+    "message": "unimplemented: CREATE VECTOR INDEX is not supported in this version",
+    "injectInto": "cockroach.query:CREATE VECTOR INDEX",
+    "remediationMustMention": ["vector indexing", "Gate 6"]
+  },
+
+  "mcp-auth-failed": {
+    "name": "Error",
+    "message": "MCP connect failed: 401 Unauthorized",
+    "injectInto": "mcp.listTools",
+    "remediationMustMention": ["DB_ACCESS_MODE=sql", "COCKROACH_MCP_API_KEY"]
+  }
+}

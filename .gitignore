@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# Real configuration and credentials. Only .env.example is committed.
+.env
+.env.*
+!.env.example
+
+# CockroachDB Cloud CA certificate downloaded during provisioning
+certs/
+*.crt
+
+# Doctor output
+doctor-report.json
+
+.DS_Store
+Thumbs.db
