@@ -2,7 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: pre-implementation
+## Active implementation override
+
+The pre-implementation Bedrock/AgentCore design notes below are historical. The active backend is
+implemented under `Backend/` as an asynchronous Lambda/SQS supervisor using Strands with Groq and
+CockroachDB Cloud MCP. Use `Backend/README.md` and `Backend/infrastructure/README.md` as the active
+architecture and deployment sources of truth.
+
+## Historical project status: pre-implementation
 
 This repository contains **no application code** — only [README.md](README.md), [LICENSE](LICENSE)
 (MIT), and the architecture diagram [agentic-ticket-system.png](agentic-ticket-system.png).

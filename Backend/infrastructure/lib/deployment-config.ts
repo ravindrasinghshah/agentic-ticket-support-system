@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-const DEFAULT_BEDROCK_MODEL_ID = 'global.anthropic.claude-sonnet-4-5-20250929-v1:0';
+const DEFAULT_GROQ_MODEL_ID = 'openai/gpt-oss-120b';
 const DEFAULT_SUPERVISOR_RESERVED_CONCURRENCY = 0;
 export const COCKROACH_CLOUD_MCP_ENDPOINT = 'https://cockroachlabs.cloud/mcp';
 const UUID_PATTERN =
@@ -10,7 +10,7 @@ const CONFIG_KEYS = new Set([
   'cockroachCloudClusterId',
   'cockroachCloudDatabase',
   'corsAllowedOrigin',
-  'bedrockModelId',
+  'groqModelId',
   'supervisorReservedConcurrency',
 ]);
 
@@ -18,7 +18,7 @@ interface DeploymentConfigFile {
   readonly cockroachCloudClusterId?: unknown;
   readonly cockroachCloudDatabase?: unknown;
   readonly corsAllowedOrigin?: unknown;
-  readonly bedrockModelId?: unknown;
+  readonly groqModelId?: unknown;
   readonly supervisorReservedConcurrency?: unknown;
 }
 
@@ -28,7 +28,8 @@ export interface DeploymentConfig {
   readonly cockroachCloudDatabase: string;
   readonly cockroachCloudMcpApiKey: string;
   readonly corsAllowedOrigin: string;
-  readonly bedrockModelId: string;
+  readonly groqApiKey: string;
+  readonly groqModelId: string;
   readonly supervisorReservedConcurrency: number;
 }
 
@@ -138,10 +139,14 @@ export function loadDeploymentConfig(
       'CORS_ALLOWED_ORIGIN',
     ),
   );
-  const bedrockModelId = requiredString(
-    environment.BEDROCK_MODEL_ID ?? file.bedrockModelId ?? DEFAULT_BEDROCK_MODEL_ID,
-    'BEDROCK_MODEL_ID',
+  const groqApiKey = requiredString(environment.GROQ_API_KEY, 'GROQ_API_KEY');
+  const groqModelId = requiredString(
+    environment.GROQ_MODEL_ID ?? file.groqModelId ?? DEFAULT_GROQ_MODEL_ID,
+    'GROQ_MODEL_ID',
   );
+  if (!/^[a-z0-9][a-z0-9._/-]{1,127}$/i.test(groqModelId)) {
+    throw new Error('GROQ_MODEL_ID contains unsupported characters');
+  }
   const supervisorReservedConcurrency = nonNegativeInteger(
     environment.SUPERVISOR_RESERVED_CONCURRENCY ??
       file.supervisorReservedConcurrency ??
@@ -155,7 +160,8 @@ export function loadDeploymentConfig(
     cockroachCloudDatabase,
     cockroachCloudMcpApiKey,
     corsAllowedOrigin,
-    bedrockModelId,
+    groqApiKey,
+    groqModelId,
     supervisorReservedConcurrency,
   };
 }

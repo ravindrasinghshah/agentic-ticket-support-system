@@ -25,12 +25,15 @@ flowchart LR
             dlq["Dead-letter SQS queue<br/>14-day retention<br/>SSE-SQS; TLS enforced"]
             failure["DLQ escalation Lambda<br/>Safe final escalation<br/>512 MB; 30-second timeout"]
 
-            roles["Per-Lambda IAM roles<br/>Queue and Bedrock permissions"]
+            roles["Per-Lambda IAM roles<br/>Queue and logging permissions"]
             logs["CloudWatch log groups<br/>30-day retention"]
             traces["AWS X-Ray<br/>Active Lambda tracing"]
         end
 
-        bedrock["Amazon Bedrock<br/>Configured foundation model<br/>or inference profile"]
+    end
+
+    subgraph groqCloud["GroqCloud"]
+        groq["Groq Chat Completions API<br/>openai/gpt-oss-120b<br/>Strands OpenAI-compatible adapter"]
     end
 
     subgraph cockroach["Cockroach Labs cloud"]
@@ -44,7 +47,7 @@ flowchart LR
     api -->|"Create/read durable job state"| mcp
     api -->|"SendMessage"| jobs
     jobs -->|"SQS event source; batch size 1"| supervisor
-    supervisor -->|"InvokeModel"| bedrock
+    supervisor -->|"HTTPS model/tool loop"| groq
     supervisor -->|"Context, plan, domain tools, results"| mcp
     jobs -.->|"After 3 failed deliveries"| dlq
     dlq -->|"SQS event source; batch size 1"| failure
@@ -77,7 +80,6 @@ flowchart TB
         subgraph publicEndpoints["AWS-managed service endpoints"]
             functionUrl["Public Lambda Function URL<br/>HTTPS ingress"]
             sqsEndpoint["Amazon SQS endpoint"]
-            bedrockEndpoint["Amazon Bedrock endpoint"]
             telemetry["CloudWatch Logs and X-Ray endpoints"]
         end
 
@@ -93,6 +95,7 @@ flowchart TB
     subgraph external["External managed data plane"]
         mcpEndpoint["CockroachDB Cloud MCP<br/>Public HTTPS endpoint"]
         cockroachCluster["Selected CockroachDB Cloud cluster"]
+        groqEndpoint["Groq Chat Completions API<br/>Public HTTPS endpoint"]
     end
 
     browser -->|"HTTPS 443; CORS-allowed origin"| functionUrl
@@ -100,7 +103,7 @@ flowchart TB
     apiLambda -->|"AWS SDK over HTTPS"| sqsEndpoint
     sqsEndpoint -->|"Managed event-source polling"| supervisorLambda
     sqsEndpoint -->|"DLQ event-source polling"| dlqLambda
-    supervisorLambda -->|"AWS API over HTTPS"| bedrockEndpoint
+    supervisorLambda -->|"Outbound HTTPS 443"| groqEndpoint
 
     apiLambda -->|"Outbound HTTPS 443"| mcpEndpoint
     supervisorLambda -->|"Outbound HTTPS 443"| mcpEndpoint
@@ -114,10 +117,10 @@ flowchart TB
 ```
 
 The stack does not attach the Lambdas to a customer-managed VPC. The only public ingress is the
-Function URL. Lambda-to-SQS and Lambda-to-Bedrock traffic uses AWS service endpoints, while all
-three Lambdas make outbound HTTPS calls to the public CockroachDB Cloud MCP endpoint. Consequently,
-the stack creates no VPC, subnet, route table, internet gateway, NAT gateway, security group, or VPC
-endpoint.
+Function URL. Lambda-to-SQS traffic uses the AWS service endpoint. All three Lambdas make outbound
+HTTPS calls to the public CockroachDB Cloud MCP endpoint, while only the supervisor calls Groq over
+public HTTPS. Consequently, the stack creates no VPC, subnet, route table, internet gateway, NAT
+gateway, security group, or VPC endpoint.
 
 CORS restricts browser access to the configured frontend origin, but it is not authentication. The
 Function URL remains publicly invokable because its authorization type is `NONE`.
@@ -130,18 +133,18 @@ Function URL remains publicly invokable because its authorization type is `NONE`
 | Job API Lambda | Validates submissions, creates jobs, publishes SQS messages, and returns job status. |
 | Lambda Function URL | Provides public `POST /jobs` and `GET /jobs/{jobId}` HTTPS access. |
 | Agent job SQS queue | Decouples submission from reasoning and triggers the supervisor Lambda. |
-| Supervisor Lambda | Loads context, invokes Bedrock, calls typed data operations, and stores the outcome. |
+| Supervisor Lambda | Loads context, invokes Groq through Strands, calls typed data operations, and stores the outcome. |
 | Dead-letter SQS queue | Receives a message after three unsuccessful deliveries from the job queue. |
 | DLQ escalation Lambda | Converts exhausted retries into a safe, durable escalation response. |
-| IAM roles and policies | Permit only required queue actions and Bedrock invocation for each Lambda. |
+| IAM roles and policies | Permit only required AWS queue, logging, and tracing actions; Groq uses HTTPS API-key authentication. |
 | CloudWatch log groups | Store structured logs for each Lambda for 30 days. |
 | AWS X-Ray | Receives active traces from all three Lambda functions. |
 | CDK bootstrap resources | Store and publish bundled Lambda assets; these live in the separate `CDKToolkit` stack. |
 
-Amazon Bedrock, CockroachDB Cloud, and its managed MCP endpoint are consumed services; this CDK
-stack does not create them. The existing CockroachDB database and its schema are outside
-CloudFormation. Versioned migrations run only from a developer workstation or CI before
-deployment; Lambda contains no DDL or database-creation path.
+Groq, CockroachDB Cloud, and its managed MCP endpoint are consumed services; this CDK stack does
+not create them. The existing CockroachDB database and its schema are outside CloudFormation.
+Versioned migrations run only from a developer workstation or CI before deployment; Lambda
+contains no DDL or database-creation path.
 
 ## Commands
 
@@ -166,12 +169,12 @@ Copy-Item .env.example .env
 ```
 
 The `.env` file is gitignored. For the current demo deployment it contains the CockroachDB Cloud
-cluster ID, database name, MCP service-account API key, and exact frontend origin. The managed
-endpoint is fixed in code to `https://cockroachlabs.cloud/mcp`.
+cluster ID, database name, MCP service-account API key, Groq API key, and exact frontend origin.
+The managed MCP endpoint and Groq API base URL are fixed in code.
 
-This temporary approach injects the API key into the Lambda environment and synthesized
-CloudFormation output. Do not use it for production; restore Secrets Manager retrieval before
-promoting the stack beyond a development environment.
+This temporary approach injects API keys into Lambda environments and synthesized CloudFormation
+output. Only the supervisor receives the Groq key. Do not use this approach for production; restore
+Secrets Manager retrieval before promoting the stack beyond a development environment.
 
 Stage-specific JSON configuration remains available when a structured file is more convenient:
 
@@ -199,15 +202,16 @@ $env:COCKROACH_CLOUD_CLUSTER_ID = "01234567-89ab-4def-8123-456789abcdef"
 $env:COCKROACH_CLOUD_MCP_API_KEY = "your-cockroach-cloud-service-account-api-key"
 $env:COCKROACH_CLOUD_DATABASE = "ticket_support"
 $env:CORS_ALLOWED_ORIGIN = "http://localhost:3000"
-$env:BEDROCK_MODEL_ID = "global.anthropic.claude-sonnet-4-5-20250929-v1:0" # optional
+$env:GROQ_API_KEY = "your-groq-api-key"
+$env:GROQ_MODEL_ID = "openai/gpt-oss-120b" # optional
 $env:SUPERVISOR_RESERVED_CONCURRENCY = "0" # optional; 0 means no reservation
 ```
 
 The required settings are `COCKROACH_CLOUD_CLUSTER_ID`, `COCKROACH_CLOUD_DATABASE`,
-`COCKROACH_CLOUD_MCP_API_KEY`, and `CORS_ALLOWED_ORIGIN`. Find the cluster ID in the CockroachDB
-Cloud Console Overview URL. The MCP service account must have Cluster Admin or Cluster Operator
-access to that cluster. The API key is accepted only through the environment or ignored `.env`,
-not through stage JSON files, to reduce the chance of checking it in. Local `.env*` and
+`COCKROACH_CLOUD_MCP_API_KEY`, `GROQ_API_KEY`, and `CORS_ALLOWED_ORIGIN`. Find the cluster ID in the
+CockroachDB Cloud Console Overview URL. The MCP service account must have Cluster Admin or Cluster
+Operator access to that cluster. API keys are accepted only through the environment or ignored
+`.env`, not through stage JSON files, to reduce the chance of checking them in. Local `.env*` and
 `config/*.json` files are gitignored, while sanitized example templates may be committed.
 
 `SUPERVISOR_RESERVED_CONCURRENCY` defaults to `0`, which omits function-level reserved concurrency
@@ -260,8 +264,9 @@ npm run diff
 npm run deploy
 ```
 
-The `predeploy` lifecycle runs `db:check` locally. CDK is invoked only if the existing database is
-healthy and the configured MCP service account has the runtime permissions AWS will need.
+The `predeploy` lifecycle runs `db:check` and `model:check` locally. CDK is invoked only if the
+existing database is healthy, the configured MCP service account has the runtime permissions AWS
+will need, and Groq accepts the configured API key and model.
 
 Run `npx cdk diff` before deployment and review IAM or resource replacements. Use separate AWS
 accounts for development, staging, and production where available.

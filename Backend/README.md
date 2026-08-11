@@ -1,12 +1,13 @@
 # Lambda ticket supervisor
 
-The backend uses AWS Lambda, SQS, Amazon Bedrock model inference, and the authenticated managed
-CockroachDB Cloud MCP service.
+The backend uses AWS Lambda, SQS, Strands with Groq model inference, and the authenticated managed
+CockroachDB Cloud MCP service. It does not depend on Bedrock model access or AgentCore.
 
 The Lambdas connect to `https://cockroachlabs.cloud/mcp` with a required
 `mcp-cluster-id` header and a service-account API key. For the current development-only setup, both
-are read from the ignored `infrastructure/.env` file and injected into the Lambda environment.
-Production deployment should move the API key back to Secrets Manager.
+are read from the ignored `infrastructure/.env` file and injected into the Lambda environment. The
+Groq API key is read from the same file but injected only into the supervisor Lambda. Production
+deployment should move both API keys to Secrets Manager.
 
 The supervisor package layout and dependency direction are documented in
 `app/SupervisorAgent/README.md`.
@@ -18,8 +19,8 @@ deployment source of truth and synthesizes standard AWS CloudFormation.
 
 1. The public Function URL accepts `POST /jobs` and returns `202` with a job ID.
 2. The request Lambda creates durable job state through MCP and publishes a versioned SQS message.
-3. The supervisor Lambda loads context first, forms and persists a plan, and runs at most three
-   domain-tool calls through an allowlisted MCP boundary.
+3. The supervisor Lambda invokes Groq through Strands, loads context first, forms and persists a
+   plan, and runs at most three domain-tool calls through an allowlisted MCP boundary.
 4. Clients poll `GET /jobs/{jobId}` until the job is `completed`, `escalated`, or `failed`.
 5. Messages that exhaust three SQS deliveries move to a DLQ and are safely escalated.
 

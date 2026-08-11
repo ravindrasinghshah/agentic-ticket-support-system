@@ -1,13 +1,11 @@
 import * as path from 'node:path';
 import {
-  ArnFormat,
   CfnOutput,
   Duration,
   Stack,
   Tags,
   type StackProps,
 } from 'aws-cdk-lib';
-import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as lambdaNodejs from 'aws-cdk-lib/aws-lambda-nodejs';
@@ -111,7 +109,8 @@ export class TicketSupportBackendStack extends Stack {
       environment: {
         ...commonEnvironment,
         AGENT_TIMEOUT_MS: '720000',
-        BEDROCK_MODEL_ID: deploymentConfig.bedrockModelId,
+        GROQ_API_KEY: deploymentConfig.groqApiKey,
+        GROQ_MODEL_ID: deploymentConfig.groqModelId,
       },
       logGroup: this.createLogGroup('SupervisorLogGroup'),
       memorySize: 1024,
@@ -123,29 +122,6 @@ export class TicketSupportBackendStack extends Stack {
         : {}),
       timeout: SUPERVISOR_TIMEOUT,
     });
-    supervisor.addToRolePolicy(
-      new iam.PolicyStatement({
-        sid: 'InvokeConfiguredBedrockModels',
-        actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
-        resources: [
-          this.formatArn({
-            service: 'bedrock',
-            region: '*',
-            account: '',
-            resource: 'foundation-model',
-            resourceName: '*',
-            arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
-          }),
-          this.formatArn({
-            service: 'bedrock',
-            region: '*',
-            resource: 'inference-profile',
-            resourceName: '*',
-            arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
-          }),
-        ],
-      }),
-    );
     supervisor.addEventSource(
       new lambdaEventSources.SqsEventSource(jobQueue, {
         batchSize: 1,

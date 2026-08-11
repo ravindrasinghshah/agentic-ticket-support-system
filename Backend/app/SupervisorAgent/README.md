@@ -14,7 +14,7 @@ SupervisorAgent/
 |   |-- application/           # Use cases, dependency ports, and safety rules
 |   |-- agent/                 # Strands model/tool integration
 |   |-- handlers/              # Lambda event parsing and response mapping
-|   |-- infrastructure/        # AWS, Bedrock, and CockroachDB MCP adapters
+|   |-- infrastructure/        # AWS, Groq, and CockroachDB MCP adapters
 |   `-- config/                # Environment parsing
 `-- test/                      # Tests arranged to mirror the source layers
 ```
@@ -40,7 +40,8 @@ handlers and use cases.
 | `COCKROACH_CLOUD_MCP_TOOL_TIMEOUT_MS` | all | no | Per-tool timeout; defaults to 20 seconds |
 | `JOB_QUEUE_URL` | job API | yes | Work queue URL |
 | `CORS_ALLOWED_ORIGIN` | job API | yes | Exact frontend origin |
-| `BEDROCK_MODEL_ID` | supervisor | no | Bedrock model/inference profile ID |
+| `GROQ_API_KEY` | supervisor | yes | Groq API key; temporarily injected from the ignored deployment `.env` |
+| `GROQ_MODEL_ID` | supervisor | no | Groq model ID; defaults to `openai/gpt-oss-120b` |
 | `AGENT_TIMEOUT_MS` | supervisor | no | Agent deadline below Lambda and SQS deadlines |
 
 Run `npm test` to compile and execute the unit and contract tests. The configured CockroachDB
@@ -52,6 +53,7 @@ database must be provisioned independently before using these local-only command
 | `npm run db:check` | Verify the existing database, expected tables/columns, MCP tools, and runtime read/write permissions without persisting test rows |
 | `npm run db:seed` | Optionally add the deterministic development ticket; never run automatically in AWS |
 | `npm run db:setup` | Development convenience command: migrate, seed, then check |
+| `npm run model:check` | Make a minimal Groq Chat Completions request using the deployment key and model |
 
 None of the Lambda entrypoints imports the local database script or has access to MCP schema tools.
 At runtime, AWS assumes the database has already passed `db:check`.
@@ -66,8 +68,8 @@ data-modifying CTE updates a terminal job and its ticket in one database stateme
 The model-facing tool allowlist is separate. Never expose either native MCP query tool directly to
 Strands.
 
-For the current development-only deployment, CDK places the API key in the Lambda environment.
-Use Secrets Manager before deploying to production.
+For the current development-only deployment, CDK places the API keys in Lambda environments. Only
+the supervisor receives the Groq key. Use Secrets Manager before deploying to production.
 
 The Lambda functions, SQS queues, Function URL, and IAM permissions are deployed by the TypeScript
 CDK app in `../../infrastructure`.

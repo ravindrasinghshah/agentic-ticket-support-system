@@ -36,6 +36,7 @@ describe('loadDeploymentConfig', () => {
         environment: {
           DEPLOYMENT_STAGE: 'development',
           COCKROACH_CLOUD_MCP_API_KEY: 'test-api-key',
+          GROQ_API_KEY: 'test-groq-api-key',
         },
       });
 
@@ -44,8 +45,8 @@ describe('loadDeploymentConfig', () => {
       assert.equal(config.cockroachCloudDatabase, requiredFileValues.cockroachCloudDatabase);
       assert.equal(config.corsAllowedOrigin, requiredFileValues.corsAllowedOrigin);
       assert.equal(
-        config.bedrockModelId,
-        'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+        config.groqModelId,
+        'openai/gpt-oss-120b',
       );
       assert.equal(config.supervisorReservedConcurrency, 0);
     } finally {
@@ -56,7 +57,7 @@ describe('loadDeploymentConfig', () => {
   it('lets environment variables override file values', () => {
     const fixture = createConfigFile({
       ...requiredFileValues,
-      bedrockModelId: 'file.model',
+      groqModelId: 'file/model',
       supervisorReservedConcurrency: 3,
     });
     try {
@@ -67,7 +68,8 @@ describe('loadDeploymentConfig', () => {
           COCKROACH_CLOUD_CLUSTER_ID: '11111111-2222-4333-8444-555555555555',
           COCKROACH_CLOUD_MCP_API_KEY: 'environment-api-key',
           COCKROACH_CLOUD_DATABASE: 'support_override',
-          BEDROCK_MODEL_ID: 'environment.model',
+          GROQ_API_KEY: 'environment-groq-api-key',
+          GROQ_MODEL_ID: 'environment/model',
           SUPERVISOR_RESERVED_CONCURRENCY: '7',
         },
       });
@@ -76,7 +78,8 @@ describe('loadDeploymentConfig', () => {
         config.cockroachCloudClusterId,
         '11111111-2222-4333-8444-555555555555',
       );
-      assert.equal(config.bedrockModelId, 'environment.model');
+      assert.equal(config.groqApiKey, 'environment-groq-api-key');
+      assert.equal(config.groqModelId, 'environment/model');
       assert.equal(config.cockroachCloudDatabase, 'support_override');
       assert.equal(config.supervisorReservedConcurrency, 7);
       assert.equal(config.corsAllowedOrigin, requiredFileValues.corsAllowedOrigin);
@@ -94,6 +97,7 @@ describe('loadDeploymentConfig', () => {
         COCKROACH_CLOUD_MCP_API_KEY: 'production-api-key',
         COCKROACH_CLOUD_DATABASE: 'ticket_support',
         CORS_ALLOWED_ORIGIN: 'https://support.example.com',
+        GROQ_API_KEY: 'production-groq-api-key',
       },
     });
 
@@ -123,6 +127,7 @@ describe('loadDeploymentConfig', () => {
             environment: {
               DEPLOYMENT_STAGE: 'development',
               COCKROACH_CLOUD_MCP_API_KEY: 'test-api-key',
+              GROQ_API_KEY: 'test-groq-api-key',
             },
           }),
         /Unknown deployment config fields/,
@@ -138,6 +143,7 @@ describe('loadDeploymentConfig', () => {
             COCKROACH_CLOUD_CLUSTER_ID: 'not-a-cluster-id',
             COCKROACH_CLOUD_MCP_API_KEY: 'test-api-key',
             CORS_ALLOWED_ORIGIN: 'https://frontend.example/path',
+            GROQ_API_KEY: 'test-groq-api-key',
           },
         }),
       /COCKROACH_CLOUD_CLUSTER_ID/,

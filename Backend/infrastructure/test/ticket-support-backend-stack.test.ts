@@ -12,7 +12,8 @@ const deploymentConfig: DeploymentConfig = {
   cockroachCloudDatabase: 'ticket_support',
   cockroachCloudMcpApiKey: 'test-api-key',
   corsAllowedOrigin: 'https://frontend.test.example',
-  bedrockModelId: 'test.model-v1:0',
+  groqApiKey: 'test-groq-api-key',
+  groqModelId: 'openai/gpt-oss-120b',
   supervisorReservedConcurrency: 5,
 };
 const app = new App();
@@ -53,7 +54,8 @@ describe('TicketSupportBackendStack', () => {
       Environment: {
         Variables: Match.objectLike({
           AGENT_TIMEOUT_MS: '720000',
-          BEDROCK_MODEL_ID: deploymentConfig.bedrockModelId,
+          GROQ_API_KEY: deploymentConfig.groqApiKey,
+          GROQ_MODEL_ID: deploymentConfig.groqModelId,
         }),
       },
     });
@@ -119,24 +121,23 @@ describe('TicketSupportBackendStack', () => {
     });
   });
 
-  it('grants only the required Bedrock invocation actions', () => {
-    const policies = template.findResources('AWS::IAM::Policy');
-    const statements = Object.values(policies).flatMap((policy) => {
-      const document = policy.Properties?.PolicyDocument as
-        | { Statement?: Array<Record<string, unknown>> }
-        | undefined;
-      return document?.Statement ?? [];
-    });
-    const bedrockStatement = statements.find(
-      (statement) => statement.Sid === 'InvokeConfiguredBedrockModels',
+  it('injects the Groq key only into the supervisor and grants no Bedrock actions', () => {
+    const functions = template.findResources('AWS::Lambda::Function');
+    const supervisor = Object.values(functions).find(
+      (resource) =>
+        resource.Properties?.Description ===
+        'Runs the bounded Strands supervisor for queued ticket jobs',
     );
-
-    assert.ok(bedrockStatement, 'expected a dedicated Bedrock IAM statement');
-    assert.deepEqual(bedrockStatement.Action, [
-      'bedrock:InvokeModel',
-      'bedrock:InvokeModelWithResponseStream',
-    ]);
-    assert.equal(Array.isArray(bedrockStatement.Resource), true);
+    assert.ok(supervisor, 'expected the supervisor Lambda function');
+    assert.equal(
+      supervisor.Properties?.Environment?.Variables?.GROQ_API_KEY,
+      deploymentConfig.groqApiKey,
+    );
+    for (const resource of Object.values(functions)) {
+      if (resource === supervisor) continue;
+      assert.equal(resource.Properties?.Environment?.Variables?.GROQ_API_KEY, undefined);
+    }
+    assert.equal(JSON.stringify(template.toJSON()).includes('bedrock:InvokeModel'), false);
   });
 
   it('publishes the API and queue URLs as stack outputs', () => {
@@ -151,7 +152,8 @@ describe('TicketSupportBackendStack', () => {
     assert.equal(parameters?.CockroachCloudClusterId, undefined);
     assert.equal(parameters?.CockroachCloudMcpApiKey, undefined);
     assert.equal(parameters?.CorsAllowedOrigin, undefined);
-    assert.equal(parameters?.BedrockModelId, undefined);
+    assert.equal(parameters?.GroqApiKey, undefined);
+    assert.equal(parameters?.GroqModelId, undefined);
     assert.equal(parameters?.SupervisorReservedConcurrency, undefined);
   });
 });

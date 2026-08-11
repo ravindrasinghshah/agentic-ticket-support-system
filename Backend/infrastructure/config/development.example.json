@@ -2,6 +2,6 @@
   "cockroachCloudClusterId": "01234567-89ab-4def-8123-456789abcdef",
   "cockroachCloudDatabase": "ticket_support",
   "corsAllowedOrigin": "http://localhost:3000",
-  "bedrockModelId": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "groqModelId": "openai/gpt-oss-120b",
   "supervisorReservedConcurrency": 0
 }
