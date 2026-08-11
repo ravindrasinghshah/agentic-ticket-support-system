@@ -14,6 +14,7 @@ with esbuild during synthesis and deployment.
 ```mermaid
 flowchart LR
     client["Frontend / API client"]
+    operator["Developer workstation or CI<br/>Local migrations and preflight"]
 
     subgraph aws["AWS account and Region"]
         subgraph stack["CloudFormation stack: TicketSupportBackend"]
@@ -38,6 +39,7 @@ flowchart LR
     end
 
     client -->|"HTTPS POST and GET"| url
+    operator -.->|"Before deployment: migrate/check"| mcp
     url -->|"Invoke"| api
     api -->|"Create/read durable job state"| mcp
     api -->|"SendMessage"| jobs
@@ -137,8 +139,9 @@ Function URL remains publicly invokable because its authorization type is `NONE`
 | CDK bootstrap resources | Store and publish bundled Lambda assets; these live in the separate `CDKToolkit` stack. |
 
 Amazon Bedrock, CockroachDB Cloud, and its managed MCP endpoint are consumed services; this CDK
-stack does not create them. The CockroachDB schema migration is also outside CloudFormation and
-must be applied separately.
+stack does not create them. The existing CockroachDB database and its schema are outside
+CloudFormation. Versioned migrations run only from a developer workstation or CI before
+deployment; Lambda contains no DDL or database-creation path.
 
 ## Commands
 
@@ -163,8 +166,8 @@ Copy-Item .env.example .env
 ```
 
 The `.env` file is gitignored. For the current demo deployment it contains the CockroachDB Cloud
-cluster ID, MCP service-account API key, and exact frontend origin. The managed endpoint is fixed in
-code to `https://cockroachlabs.cloud/mcp`.
+cluster ID, database name, MCP service-account API key, and exact frontend origin. The managed
+endpoint is fixed in code to `https://cockroachlabs.cloud/mcp`.
 
 This temporary approach injects the API key into the Lambda environment and synthesized
 CloudFormation output. Do not use it for production; restore Secrets Manager retrieval before
@@ -194,20 +197,51 @@ Environment-only deployment is also supported:
 ```powershell
 $env:COCKROACH_CLOUD_CLUSTER_ID = "01234567-89ab-4def-8123-456789abcdef"
 $env:COCKROACH_CLOUD_MCP_API_KEY = "your-cockroach-cloud-service-account-api-key"
+$env:COCKROACH_CLOUD_DATABASE = "ticket_support"
 $env:CORS_ALLOWED_ORIGIN = "http://localhost:3000"
 $env:BEDROCK_MODEL_ID = "global.anthropic.claude-sonnet-4-5-20250929-v1:0" # optional
 $env:SUPERVISOR_RESERVED_CONCURRENCY = "0" # optional; 0 means no reservation
 ```
 
-The required settings are `COCKROACH_CLOUD_CLUSTER_ID`, `COCKROACH_CLOUD_MCP_API_KEY`, and
-`CORS_ALLOWED_ORIGIN`. Find the cluster ID in the CockroachDB Cloud Console Overview URL. The API
-key is accepted only through the environment or ignored `.env`, not through stage JSON files, to
-reduce the chance of checking it in. Local `.env*` and `config/*.json` files are gitignored, while
-sanitized example templates may be committed.
+The required settings are `COCKROACH_CLOUD_CLUSTER_ID`, `COCKROACH_CLOUD_DATABASE`,
+`COCKROACH_CLOUD_MCP_API_KEY`, and `CORS_ALLOWED_ORIGIN`. Find the cluster ID in the CockroachDB
+Cloud Console Overview URL. The MCP service account must have Cluster Admin or Cluster Operator
+access to that cluster. The API key is accepted only through the environment or ignored `.env`,
+not through stage JSON files, to reduce the chance of checking it in. Local `.env*` and
+`config/*.json` files are gitignored, while sanitized example templates may be committed.
 
 `SUPERVISOR_RESERVED_CONCURRENCY` defaults to `0`, which omits function-level reserved concurrency
 and lets the supervisor use the account's shared concurrency pool. Set a positive value only when
 the Region has enough Lambda concurrency quota left to preserve AWS's required unreserved pool.
+
+## Database precondition
+
+Provision the CockroachDB database independently. CDK deliberately does not own it. Apply the
+application schema from the local workstation, then run the non-mutating health and permission
+preflight:
+
+```powershell
+cd ..\app\SupervisorAgent
+npm run db:migrate
+npm run db:check
+cd ..\..\infrastructure
+```
+
+`db:migrate` fails if the configured database does not exist. It records each applied migration and
+checksum in `public.schema_migrations`; changing an applied migration is rejected, so subsequent
+schema changes must be added as new files. `db:check` validates all expected tables and columns,
+read access, and the insert/update permissions used by Lambda without retaining probe rows. An
+`unauthorized` error means the existing service account still needs a supported cluster role.
+
+Demo data is separate and optional:
+
+```powershell
+cd ..\app\SupervisorAgent
+npm run db:seed
+cd ..\..\infrastructure
+```
+
+Neither deployment nor Lambda runs the seed command.
 
 ## Deploy
 
@@ -226,5 +260,33 @@ npm run diff
 npm run deploy
 ```
 
+The `predeploy` lifecycle runs `db:check` locally. CDK is invoked only if the existing database is
+healthy and the configured MCP service account has the runtime permissions AWS will need.
+
 Run `npx cdk diff` before deployment and review IAM or resource replacements. Use separate AWS
 accounts for development, staging, and production where available.
+
+## End-to-end smoke test
+
+After `npm run db:migrate`, optional `npm run db:seed`, and `npm run deploy` succeed, use the stack
+output URL:
+
+```powershell
+$ApiUrl = "https://d5hunnxpid2jrxnucitqf5kdpq0rvxaa.lambda-url.us-east-1.on.aws/"
+$Request = @{
+  ticketId = "22222222-2222-4222-8222-222222222222"
+  conversationId = "33333333-3333-4333-8333-333333333333"
+} | ConvertTo-Json
+
+$Submitted = Invoke-RestMethod -Method Post -Uri "${ApiUrl}jobs" `
+  -ContentType "application/json" -Body $Request
+$Submitted
+
+do {
+  Start-Sleep -Seconds 3
+  $Result = Invoke-RestMethod -Method Get -Uri "${ApiUrl}jobs/$($Submitted.jobId)"
+  $Result
+} while ($Result.status -in @("queued", "running"))
+```
+
+The terminal status should be `completed` or a safe `escalated`, and both include `response`.

@@ -14,7 +14,7 @@
     "synth": "cdk synth",
     "prediff": "npm run build",
     "diff": "cdk diff",
-    "predeploy": "npm run build",
+    "predeploy": "npm run build && npm --prefix ../app/SupervisorAgent run db:check",
     "deploy": "cdk deploy",
     "check": "npm test && npm run synth"
   },

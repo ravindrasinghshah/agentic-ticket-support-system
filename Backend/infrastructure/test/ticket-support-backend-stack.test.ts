@@ -9,6 +9,7 @@ import { TicketSupportBackendStack } from '../lib/ticket-support-backend-stack';
 const deploymentConfig: DeploymentConfig = {
   stage: 'test',
   cockroachCloudClusterId: '01234567-89ab-4def-8123-456789abcdef',
+  cockroachCloudDatabase: 'ticket_support',
   cockroachCloudMcpApiKey: 'test-api-key',
   corsAllowedOrigin: 'https://frontend.test.example',
   bedrockModelId: 'test.model-v1:0',
@@ -36,6 +37,7 @@ describe('TicketSupportBackendStack', () => {
           CORS_ALLOWED_ORIGIN: deploymentConfig.corsAllowedOrigin,
           COCKROACH_CLOUD_MCP_API_KEY: deploymentConfig.cockroachCloudMcpApiKey,
           COCKROACH_CLOUD_CLUSTER_ID: deploymentConfig.cockroachCloudClusterId,
+          COCKROACH_CLOUD_DATABASE: deploymentConfig.cockroachCloudDatabase,
           JOB_QUEUE_URL: Match.anyValue(),
           COCKROACH_CLOUD_MCP_ENDPOINT: 'https://cockroachlabs.cloud/mcp',
           COCKROACH_CLOUD_MCP_TOOL_TIMEOUT_MS: '20000',

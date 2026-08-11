@@ -55,7 +55,11 @@ export class FakeDataPort implements AgentDataPort {
     return this.claimResult;
   }
 
-  async loadTicketContext(_ticketId: string, _conversationId: string): Promise<unknown> {
+  async loadTicketContext(
+    _jobId: string,
+    _ticketId: string,
+    _conversationId: string,
+  ): Promise<unknown> {
     this.calls.push('loadTicketContext');
     return { ticket: { title: 'Where is my order?' }, order: { id: JOB_MESSAGE.ticketId } };
   }
@@ -107,6 +111,7 @@ export class FakeDataPort implements AgentDataPort {
   }
 
   async appendMessage(
+    _jobId: string,
     _ticketId: string,
     _conversationId: string,
     role: 'user' | 'assistant',

@@ -23,6 +23,7 @@ function createConfigFile(contents: Record<string, unknown>): {
 
 const requiredFileValues = {
   cockroachCloudClusterId: '01234567-89ab-4def-8123-456789abcdef',
+  cockroachCloudDatabase: 'ticket_support',
   corsAllowedOrigin: 'https://frontend.config.example',
 };
 
@@ -40,6 +41,7 @@ describe('loadDeploymentConfig', () => {
 
       assert.equal(config.stage, 'development');
       assert.equal(config.cockroachCloudClusterId, requiredFileValues.cockroachCloudClusterId);
+      assert.equal(config.cockroachCloudDatabase, requiredFileValues.cockroachCloudDatabase);
       assert.equal(config.corsAllowedOrigin, requiredFileValues.corsAllowedOrigin);
       assert.equal(
         config.bedrockModelId,
@@ -64,6 +66,7 @@ describe('loadDeploymentConfig', () => {
           DEPLOYMENT_STAGE: 'development',
           COCKROACH_CLOUD_CLUSTER_ID: '11111111-2222-4333-8444-555555555555',
           COCKROACH_CLOUD_MCP_API_KEY: 'environment-api-key',
+          COCKROACH_CLOUD_DATABASE: 'support_override',
           BEDROCK_MODEL_ID: 'environment.model',
           SUPERVISOR_RESERVED_CONCURRENCY: '7',
         },
@@ -74,6 +77,7 @@ describe('loadDeploymentConfig', () => {
         '11111111-2222-4333-8444-555555555555',
       );
       assert.equal(config.bedrockModelId, 'environment.model');
+      assert.equal(config.cockroachCloudDatabase, 'support_override');
       assert.equal(config.supervisorReservedConcurrency, 7);
       assert.equal(config.corsAllowedOrigin, requiredFileValues.corsAllowedOrigin);
     } finally {
@@ -88,6 +92,7 @@ describe('loadDeploymentConfig', () => {
         DEPLOYMENT_STAGE: 'production',
         COCKROACH_CLOUD_CLUSTER_ID: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
         COCKROACH_CLOUD_MCP_API_KEY: 'production-api-key',
+        COCKROACH_CLOUD_DATABASE: 'ticket_support',
         CORS_ALLOWED_ORIGIN: 'https://support.example.com',
       },
     });

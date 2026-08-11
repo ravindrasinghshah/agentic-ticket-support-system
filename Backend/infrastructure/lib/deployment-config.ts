@@ -8,6 +8,7 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CONFIG_KEYS = new Set([
   'cockroachCloudClusterId',
+  'cockroachCloudDatabase',
   'corsAllowedOrigin',
   'bedrockModelId',
   'supervisorReservedConcurrency',
@@ -15,6 +16,7 @@ const CONFIG_KEYS = new Set([
 
 interface DeploymentConfigFile {
   readonly cockroachCloudClusterId?: unknown;
+  readonly cockroachCloudDatabase?: unknown;
   readonly corsAllowedOrigin?: unknown;
   readonly bedrockModelId?: unknown;
   readonly supervisorReservedConcurrency?: unknown;
@@ -23,6 +25,7 @@ interface DeploymentConfigFile {
 export interface DeploymentConfig {
   readonly stage: string;
   readonly cockroachCloudClusterId: string;
+  readonly cockroachCloudDatabase: string;
   readonly cockroachCloudMcpApiKey: string;
   readonly corsAllowedOrigin: string;
   readonly bedrockModelId: string;
@@ -119,6 +122,15 @@ export function loadDeploymentConfig(
     environment.COCKROACH_CLOUD_MCP_API_KEY,
     'COCKROACH_CLOUD_MCP_API_KEY',
   );
+  const cockroachCloudDatabase = requiredString(
+    environment.COCKROACH_CLOUD_DATABASE ?? file.cockroachCloudDatabase,
+    'COCKROACH_CLOUD_DATABASE',
+  );
+  if (!/^[a-z][a-z0-9_]{0,62}$/.test(cockroachCloudDatabase)) {
+    throw new Error(
+      'COCKROACH_CLOUD_DATABASE must start with a lowercase letter and contain only a-z, 0-9, or underscore',
+    );
+  }
 
   const corsAllowedOrigin = validateCorsOrigin(
     requiredString(
@@ -140,6 +152,7 @@ export function loadDeploymentConfig(
   return {
     stage,
     cockroachCloudClusterId,
+    cockroachCloudDatabase,
     cockroachCloudMcpApiKey,
     corsAllowedOrigin,
     bedrockModelId,

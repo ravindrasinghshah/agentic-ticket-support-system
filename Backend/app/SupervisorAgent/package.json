@@ -7,6 +7,11 @@
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && tsc",
+    "db:command": "npm run build && node dist/scripts/database.js",
+    "db:migrate": "npm run db:command -- migrate",
+    "db:seed": "npm run db:command -- seed",
+    "db:check": "npm run db:command -- check",
+    "db:setup": "npm run db:command -- setup",
     "test": "npm run build && node --test dist/test/**/*.test.js",
     "check": "npm run test"
   },

@@ -23,6 +23,7 @@ describe('loadEnvironmentFile', () => {
     const fixture = createEnvironmentFile(`
       COCKROACH_CLOUD_CLUSTER_ID=01234567-89ab-4def-8123-456789abcdef
       COCKROACH_CLOUD_MCP_API_KEY=file-api-key
+      COCKROACH_CLOUD_DATABASE=ticket_support
       CORS_ALLOWED_ORIGIN=https://frontend.file.example
     `);
     const environment: NodeJS.ProcessEnv = {
@@ -41,6 +42,7 @@ describe('loadEnvironmentFile', () => {
       );
       assert.equal(environment.CORS_ALLOWED_ORIGIN, 'https://frontend.file.example');
       assert.equal(environment.COCKROACH_CLOUD_MCP_API_KEY, 'file-api-key');
+      assert.equal(environment.COCKROACH_CLOUD_DATABASE, 'ticket_support');
     } finally {
       fixture.cleanup();
     }

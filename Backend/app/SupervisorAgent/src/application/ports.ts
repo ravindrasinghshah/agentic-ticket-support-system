@@ -29,7 +29,7 @@ export interface AgentDataPort {
   getJob(jobId: string): Promise<AgentJob | null>;
   failJob(jobId: string, errorCode: string): Promise<void>;
   claimJob(jobId: string, attempt: number): Promise<ClaimResult>;
-  loadTicketContext(ticketId: string, conversationId: string): Promise<unknown>;
+  loadTicketContext(jobId: string, ticketId: string, conversationId: string): Promise<unknown>;
   loadConversation(ticketId: string, conversationId: string): Promise<ConversationMessage[]>;
   savePlan(jobId: string, plan: ResolutionPlan): Promise<void>;
   beginToolCall(jobId: string, toolName: string): Promise<ToolCallPermit>;
@@ -48,6 +48,7 @@ export interface AgentDataPort {
     visibility: 'internal' | 'customer',
   ): Promise<unknown>;
   appendMessage(
+    jobId: string,
     ticketId: string,
     conversationId: string,
     role: 'user' | 'assistant',

@@ -38,9 +38,22 @@ npm run synth
 
 ## Database and MCP
 
-Apply `database/migrations/001_agent_jobs.sql`. The model receives only the local operations in
-`database/MCP_TOOL_CONTRACT.md`; arbitrary SQL and the managed MCP `select_query` tool are
-intentionally not model-facing.
+The CockroachDB database is an existing external dependency; CDK and Lambda never create or migrate
+it. Configure `infrastructure/.env`, then apply versioned migrations from the local workstation and
+verify the schema plus runtime read/write permissions:
+
+```powershell
+cd app/SupervisorAgent
+npm run db:migrate
+npm run db:check
+```
+
+`db:migrate` refuses to create a database. The configured database must already exist, and the MCP
+service account must have Cluster Admin or Cluster Operator access to it. Run `npm run db:seed`
+only when the deterministic demo ticket is wanted; production data is never seeded automatically.
+
+The model receives only the local operations in `database/MCP_TOOL_CONTRACT.md`; arbitrary SQL and
+the native managed MCP query tools are intentionally not model-facing.
 
 ## Deployment
 
@@ -58,6 +71,9 @@ npx cdk bootstrap --termination-protection
 npm run diff
 npm run deploy
 ```
+
+`npm run deploy` executes `db:check` locally before CDK. A missing database, schema drift, or
+insufficient MCP read/write access stops deployment before AWS is changed.
 
 See `infrastructure/README.md` for configuration precedence, environment-variable names, and SSO
 profile usage.

@@ -59,6 +59,7 @@ export class TicketSupportBackendStack extends Stack {
       COCKROACH_CLOUD_MCP_ENDPOINT,
       COCKROACH_CLOUD_CLUSTER_ID: deploymentConfig.cockroachCloudClusterId,
       COCKROACH_CLOUD_MCP_API_KEY: deploymentConfig.cockroachCloudMcpApiKey,
+      COCKROACH_CLOUD_DATABASE: deploymentConfig.cockroachCloudDatabase,
       COCKROACH_CLOUD_MCP_TOOL_TIMEOUT_MS: '20000',
     };
     const commonFunctionProps = {

@@ -43,7 +43,11 @@ export async function processJob(
     );
 
     // Context is deliberately loaded before an agent exists or a plan can be formed.
-    const context = await data.loadTicketContext(message.ticketId, message.conversationId);
+    const context = await data.loadTicketContext(
+      message.jobId,
+      message.ticketId,
+      message.conversationId,
+    );
     const conversation = await data.loadConversation(message.ticketId, message.conversationId);
     const orchestration = createOrchestrationTools(
       data,
@@ -75,6 +79,7 @@ export async function processJob(
     }
 
     await data.appendMessage(
+      message.jobId,
       message.ticketId,
       message.conversationId,
       'assistant',
