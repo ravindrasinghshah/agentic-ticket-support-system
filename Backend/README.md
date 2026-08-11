@@ -1,104 +1,66 @@
-# AgentCore Project
+# Lambda ticket supervisor
 
-This project was created with the [AgentCore CLI](https://github.com/aws/agentcore-cli).
+The backend uses AWS Lambda, SQS, Amazon Bedrock model inference, and the authenticated managed
+CockroachDB Cloud MCP service.
 
-## Project Structure
+The Lambdas connect to `https://cockroachlabs.cloud/mcp` with a required
+`mcp-cluster-id` header and a service-account API key. For the current development-only setup, both
+are read from the ignored `infrastructure/.env` file and injected into the Lambda environment.
+Production deployment should move the API key back to Secrets Manager.
 
-```
-my-project/
-├── AGENTS.md               # AI coding assistant context
-├── agentcore/
-│   ├── agentcore.json      # Project config (agents, memories, credentials, gateways, evaluators)
-│   ├── aws-targets.json    # Deployment targets (account + region)
-│   ├── .env.local          # Secrets — API keys (gitignored)
-│   ├── .llm-context/       # TypeScript type definitions for AI assistants
-│   │   ├── agentcore.ts    # AgentCoreProjectSpec types
-│   │   ├── aws-targets.ts  # Deployment target types
-│   │   └── mcp.ts          # Gateway and MCP tool types
-│   └── cdk/                # CDK infrastructure (@aws/agentcore-cdk)
-├── app/                    # Agent application code
-└── evaluators/             # Custom evaluator code (if any)
-```
+The supervisor package layout and dependency direction are documented in
+`app/SupervisorAgent/README.md`.
 
-## Getting Started
+AWS infrastructure is defined in TypeScript under `infrastructure/`. CDK is the only active
+deployment source of truth and synthesizes standard AWS CloudFormation.
 
-### Prerequisites
+## Request flow
 
-- **Node.js** 20.x or later
-- **Python 3.10+** and **uv** for Python agents ([install uv](https://docs.astral.sh/uv/getting-started/installation/))
-- **AWS credentials** configured (`aws configure` or environment variables)
-- **Docker** (only for Container build agents)
+1. The public Function URL accepts `POST /jobs` and returns `202` with a job ID.
+2. The request Lambda creates durable job state through MCP and publishes a versioned SQS message.
+3. The supervisor Lambda loads context first, forms and persists a plan, and runs at most three
+   domain-tool calls through an allowlisted MCP boundary.
+4. Clients poll `GET /jobs/{jobId}` until the job is `completed`, `escalated`, or `failed`.
+5. Messages that exhaust three SQS deliveries move to a DLQ and are safely escalated.
 
-### Development
+## Build and test
 
-Run your agent locally:
+```powershell
+cd app/SupervisorAgent
+npm install
+npm test
 
-```bash
-agentcore dev
-```
-
-### Deployment
-
-Deploy to AWS:
-
-```bash
-agentcore deploy
+cd ../../infrastructure
+npm install
+npm test
+npm run synth
 ```
 
-## Commands
+## Database and MCP
 
-| Command | Description |
-| --- | --- |
-| `agentcore create` | Create a new AgentCore project |
-| `agentcore add` | Add resources (agent, memory, credential, gateway, evaluator, policy) |
-| `agentcore remove` | Remove resources |
-| `agentcore dev` | Run agent locally with hot-reload |
-| `agentcore deploy` | Deploy to AWS via CDK |
-| `agentcore status` | Show deployment status |
-| `agentcore invoke` | Invoke agent (local or deployed) |
-| `agentcore logs` | View agent logs |
-| `agentcore traces` | View agent traces |
-| `agentcore eval` | Run evaluations |
-| `agentcore package` | Package agent artifacts |
-| `agentcore validate` | Validate configuration |
-| `agentcore pause` | Pause a deployed agent |
-| `agentcore resume` | Resume a paused agent |
-| `agentcore fetch` | Fetch remote resource definitions |
-| `agentcore import` | Import existing resources |
-| `agentcore update` | Check for CLI updates |
+Apply `database/migrations/001_agent_jobs.sql`. The model receives only the local operations in
+`database/MCP_TOOL_CONTRACT.md`; arbitrary SQL and the managed MCP `select_query` tool are
+intentionally not model-facing.
 
-## Configuration
+## Deployment
 
-Edit the JSON files in `agentcore/` to configure your project. See `agentcore/.llm-context/` for type definitions and validation constraints.
+Deployment uses the locally pinned AWS CDK CLI in `infrastructure/`. Bootstrap each AWS account and
+Region once, review the proposed changes, then deploy. First copy and edit the local configuration
+template; environment variables can override any file value:
 
-The project uses a **flat resource model** — agents, memories, credentials, gateways, evaluators, and policies are top-level arrays in `agentcore.json`. Resources are independent; agents discover memories and credentials at runtime via environment variables or SDK calls.
+```powershell
+cd infrastructure
+Copy-Item .env.example .env
+# Replace the example values in .env. This temporary development setup reads the MCP API key here.
 
-## Resources
+aws sso login
+npx cdk bootstrap --termination-protection
+npm run diff
+npm run deploy
+```
 
-| Resource | Purpose |
-| --- | --- |
-| Agent (runtime) | HTTP, MCP, or A2A agent deployed to AgentCore Runtime |
-| Memory | Persistent context storage with configurable strategies |
-| Credential | API key or OAuth credential providers |
-| Gateway | MCP gateway that routes tool calls to targets |
-| Gateway Target | Tool implementation (Lambda, MCP server, OpenAPI, Smithy, API Gateway) |
-| Evaluator | Custom LLM-as-a-Judge or code-based evaluation |
-| Online Eval Config | Continuous evaluation pipeline for deployed agents |
-| Policy | Cedar authorization policies for gateway tools |
+See `infrastructure/README.md` for configuration precedence, environment-variable names, and SSO
+profile usage.
 
-### Agent Types
-
-- **Template agents**: Created from framework templates (Strands, LangChain/LangGraph, GoogleADK, OpenAI Agents, Autogen)
-- **BYO agents**: Bring your own code with `agentcore add agent --type byo`
-- **Import agents**: Import existing Bedrock agents with `agentcore import`
-
-### Build Types
-
-- **CodeZip**: Python source packaged as a zip and deployed directly to AgentCore Runtime
-- **Container**: Docker image built via CodeBuild (ARM64), pushed to ECR, and deployed to AgentCore Runtime
-
-## Documentation
-
-- [AgentCore CLI](https://github.com/aws/agentcore-cli)
-- [AgentCore CDK Constructs](https://github.com/aws/agentcore-l3-cdk-constructs)
-- [Amazon Bedrock AgentCore](https://aws.amazon.com/bedrock/agentcore/)
+The Function URL is deliberately public for the demo. CORS is not authentication; use IAM or an
+application authorization layer before treating this deployment as production-ready.

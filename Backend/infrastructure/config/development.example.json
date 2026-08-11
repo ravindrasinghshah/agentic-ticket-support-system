@@ -1,0 +1,6 @@
+{
+  "cockroachCloudClusterId": "01234567-89ab-4def-8123-456789abcdef",
+  "corsAllowedOrigin": "http://localhost:3000",
+  "bedrockModelId": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "supervisorReservedConcurrency": 0
+}

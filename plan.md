@@ -1,5 +1,10 @@
 # Plan of Record: Agentic Ticket Support System
 
+> **Runtime override (2026-08-10):** AgentCore-specific gates and deployment steps in this historical
+> plan are superseded by the Lambda/SQS supervisor implemented under `Backend/`. Use
+> `Backend/README.md`, `Backend/database/MCP_TOOL_CONTRACT.md`, and `Backend/infrastructure` for the
+> active runtime, data-tool, and deployment contracts.
+
 This is the **why and in what order** document for building this system. It records the confirmed
 decisions, the refinements made to the original whiteboard design, and the checkpoint sequence.
 

@@ -1,29 +1,26 @@
 {
   "name": "SupervisorAgent",
   "version": "0.1.0",
-  "description": "AgentCore Runtime Application using Strands TypeScript SDK",
+  "description": "Asynchronous Lambda supervisor using Strands and Amazon Bedrock",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/main.js",
-    "dev": "tsx watch main.ts"
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc",
+    "test": "npm run build && node --test dist/test/**/*.test.js",
+    "check": "npm run test"
   },
   "dependencies": {
+    "@aws-sdk/client-sqs": "^3.1101.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@opentelemetry/api": "^1.9.0",
     "@strands-agents/sdk": "^1.5.0",
-    "bedrock-agentcore": "^0.3.0",
-    "tsx": "^4.19.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/aws-lambda": "^8.10.152",
     "@types/node": "^22.0.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.6.0"
-  },
-  "overrides": {
-    "bedrock-agentcore": {
-      "@strands-agents/sdk": "$@strands-agents/sdk"
-    }
   }
 }
