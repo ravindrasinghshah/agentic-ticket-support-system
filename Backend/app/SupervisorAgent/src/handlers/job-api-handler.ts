@@ -39,16 +39,13 @@ export interface ApiDependencies {
 function jsonResponse(
   statusCode: number,
   body: unknown,
-  allowedOrigin: string,
+  _allowedOrigin: string,
 ): APIGatewayProxyStructuredResultV2 {
   return {
     statusCode,
     headers: {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
-      'access-control-allow-origin': allowedOrigin,
-      'access-control-allow-methods': 'GET,POST,OPTIONS',
-      'access-control-allow-headers': 'content-type',
     },
     body: JSON.stringify(body),
   };
