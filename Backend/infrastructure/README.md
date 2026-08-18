@@ -19,7 +19,7 @@ flowchart LR
     subgraph aws["AWS account and Region"]
         subgraph stack["CloudFormation stack: TicketSupportBackend"]
             url["Lambda Function URL<br/>Public HTTPS endpoint<br/>Auth: NONE; restricted CORS"]
-            api["Job API Lambda<br/>POST /jobs and GET /jobs/{jobId}<br/>512 MB; 30-second timeout"]
+            api["Ticket API Lambda<br/>POST /tickets; GET /tickets<br/>POST /jobs; GET /jobs/{jobId}<br/>512 MB; 30-second timeout"]
             jobs["Agent job SQS queue<br/>4-day retention; 14-minute visibility<br/>SSE-SQS; TLS enforced"]
             supervisor["Supervisor Lambda<br/>Strands orchestration<br/>1024 MB; 13-minute timeout"]
             dlq["Dead-letter SQS queue<br/>14-day retention<br/>SSE-SQS; TLS enforced"]
@@ -130,8 +130,8 @@ Function URL remains publicly invokable because its authorization type is `NONE`
 | Resource | Purpose and interaction |
 | --- | --- |
 | CloudFormation stack | Owns and updates the application infrastructure synthesized by CDK. |
-| Job API Lambda | Validates submissions, creates jobs, publishes SQS messages, and returns job status. |
-| Lambda Function URL | Provides public `POST /jobs` and `GET /jobs/{jobId}` HTTPS access. |
+| Ticket API Lambda | Validates ticket/job submissions, persists state, publishes SQS messages, and returns ticket/job status. |
+| Lambda Function URL | Provides the public `/tickets` and `/jobs` HTTPS interfaces. |
 | Agent job SQS queue | Decouples submission from reasoning and triggers the supervisor Lambda. |
 | Supervisor Lambda | Loads context, invokes Groq through Strands, calls typed data operations, and stores the outcome. |
 | Dead-letter SQS queue | Receives a message after three unsuccessful deliveries from the job queue. |
@@ -279,11 +279,12 @@ output URL:
 ```powershell
 $ApiUrl = "https://d5hunnxpid2jrxnucitqf5kdpq0rvxaa.lambda-url.us-east-1.on.aws/"
 $Request = @{
-  ticketId = "22222222-2222-4222-8222-222222222222"
-  conversationId = "33333333-3333-4333-8333-333333333333"
+  subject = "Package has not arrived"
+  description = "My delivery was expected yesterday but has not arrived."
+  category = "delivery"
 } | ConvertTo-Json
 
-$Submitted = Invoke-RestMethod -Method Post -Uri "${ApiUrl}jobs" `
+$Submitted = Invoke-RestMethod -Method Post -Uri "${ApiUrl}tickets" `
   -ContentType "application/json" -Body $Request
 $Submitted
 

@@ -67,6 +67,67 @@ test('POST creates durable state before publishing and GET returns completed res
   });
 });
 
+test('POST /tickets creates a ticket and job before publishing, then exposes ticket views', async () => {
+  const data = new FakeDataPort();
+  const published: JobMessage[] = [];
+  const ids = [JOB_MESSAGE.ticketId, JOB_MESSAGE.conversationId, JOB_MESSAGE.jobId];
+  const handler = createApiHandler({
+    createDataClient: async () => data,
+    queue: { async send(message) { published.push(message); } },
+    createId: () => ids.shift() ?? JOB_MESSAGE.jobId,
+    allowedOrigin: 'https://frontend.example',
+  });
+
+  const created = await handler(
+    event('POST', '/tickets', {
+      subject: 'Where is my order?',
+      description: 'My delivery has not arrived yet.',
+      category: 'delivery',
+    }),
+  );
+
+  assert.equal(created.statusCode, 202);
+  assert.deepEqual(JSON.parse(created.body ?? '{}'), {
+    ticketId: JOB_MESSAGE.ticketId,
+    conversationId: JOB_MESSAGE.conversationId,
+    jobId: JOB_MESSAGE.jobId,
+    status: 'queued',
+  });
+  assert.deepEqual(data.calls.slice(0, 2), ['createTicket', 'createJob']);
+  assert.deepEqual(published, [JOB_MESSAGE]);
+
+  const one = await handler(event('GET', `/tickets/${JOB_MESSAGE.ticketId}`));
+  assert.equal(one.statusCode, 200);
+  assert.equal(JSON.parse(one.body ?? '{}').subject, 'Where is my order?');
+
+  const all = await handler(event('GET', '/tickets'));
+  assert.equal(all.statusCode, 200);
+  assert.equal(JSON.parse(all.body ?? '{}').count, 1);
+});
+
+test('POST /tickets validates the customer payload before opening an MCP connection', async () => {
+  let opened = false;
+  const handler = createApiHandler({
+    createDataClient: async () => {
+      opened = true;
+      return new FakeDataPort();
+    },
+    queue: { async send() {} },
+    createId: () => JOB_MESSAGE.jobId,
+    allowedOrigin: 'https://frontend.example',
+  });
+
+  const response = await handler(
+    event('POST', '/tickets', {
+      subject: 'Hi',
+      description: 'Too short',
+      category: 'anything',
+    }),
+  );
+  assert.equal(response.statusCode, 400);
+  assert.equal(opened, false);
+});
+
 test('POST rejects invalid input before opening an MCP connection', async () => {
   let opened = false;
   const handler = createApiHandler({

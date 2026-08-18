@@ -2,7 +2,9 @@ import type {
   AgentJob,
   ConversationMessage,
   JobMessage,
+  NewTicket,
   ResolutionPlan,
+  TicketSummary,
 } from '../../src/domain/contracts.js';
 import type {
   AgentDataPort,
@@ -20,6 +22,7 @@ export const JOB_MESSAGE: JobMessage = {
 export class FakeDataPort implements AgentDataPort {
   readonly calls: string[] = [];
   readonly jobs = new Map<string, AgentJob>();
+  readonly tickets = new Map<string, TicketSummary>();
   claimResult: ClaimResult = { claimed: true, status: 'running', currentPlan: null };
   permitResults: ToolCallPermit[] = [];
 
@@ -32,10 +35,43 @@ export class FakeDataPort implements AgentDataPort {
     return true;
   }
 
+  async createTicket(ticket: NewTicket): Promise<TicketSummary> {
+    this.calls.push('createTicket');
+    const created: TicketSummary = {
+      ...ticket,
+      status: 'open',
+      createdAt: '2026-08-11T00:00:00.000Z',
+      updatedAt: '2026-08-11T00:00:00.000Z',
+      jobId: null,
+      jobStatus: null,
+      response: null,
+    };
+    this.tickets.set(ticket.ticketId, created);
+    return created;
+  }
+
+  async getTicket(ticketId: string): Promise<TicketSummary | null> {
+    this.calls.push('getTicket');
+    return this.tickets.get(ticketId) ?? null;
+  }
+
+  async listTickets(limit: number): Promise<TicketSummary[]> {
+    this.calls.push('listTickets');
+    return [...this.tickets.values()].slice(0, limit);
+  }
+
   async createJob(message: JobMessage): Promise<AgentJob> {
     this.calls.push('createJob');
     const job: AgentJob = { ...message, status: 'queued', cycleCount: 0 };
     this.jobs.set(message.jobId, job);
+    const ticket = this.tickets.get(message.ticketId);
+    if (ticket) {
+      this.tickets.set(message.ticketId, {
+        ...ticket,
+        jobId: message.jobId,
+        jobStatus: 'queued',
+      });
+    }
     return job;
   }
 

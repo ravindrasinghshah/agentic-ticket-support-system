@@ -21,6 +21,9 @@ test('CockroachDB Cloud MCP connection is cluster-scoped and API-key authenticat
 test('MCP boundary exposes only named application operations and never arbitrary SQL', () => {
   assert.deepEqual(new Set(applicationOperationAllowlist), new Set([
     'ticket_exists',
+    'create_ticket',
+    'get_ticket',
+    'list_tickets',
     'create_job',
     'get_job',
     'fail_job',

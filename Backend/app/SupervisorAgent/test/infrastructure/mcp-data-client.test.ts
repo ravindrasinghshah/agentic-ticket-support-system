@@ -9,6 +9,19 @@ import type {
 import { JOB_MESSAGE } from '../support/fakes.js';
 
 const TOKEN = '99999999-9999-4999-8999-999999999999';
+const TICKET_ROW = {
+  ticketId: JOB_MESSAGE.ticketId,
+  conversationId: JOB_MESSAGE.conversationId,
+  subject: 'Where is my order?',
+  description: 'My delivery has not arrived yet.',
+  category: 'delivery',
+  status: 'open',
+  createdAt: '2026-08-11T00:00:00Z',
+  updatedAt: '2026-08-11T00:00:00Z',
+  jobId: null,
+  jobStatus: null,
+  response: null,
+};
 
 class FakeManagedMcp implements ManagedCockroachMcpClient {
   readonly insertQueries: string[] = [];
@@ -58,6 +71,37 @@ test('managed MCP repository creates and reads a durable queued job', async () =
   assert.match(mcp.insertQueries[0], /^\s*INSERT INTO public\.agent_jobs/);
   assert.match(mcp.insertQueries[0], /ON CONFLICT \(job_id\) DO NOTHING/);
   assert.equal(mcp.selectQueries.length, 1);
+});
+
+test('managed MCP repository creates a ticket with its initial conversation message', async () => {
+  const mcp = new FakeManagedMcp();
+  mcp.selectResults.push([TICKET_ROW]);
+  const data = new CockroachMcpDataClient(mcp, () => TOKEN);
+
+  const ticket = await data.createTicket({
+    ticketId: JOB_MESSAGE.ticketId,
+    conversationId: JOB_MESSAGE.conversationId,
+    subject: 'Where is my order?',
+    description: 'My delivery has not arrived yet.',
+    category: 'delivery',
+  });
+
+  assert.equal(ticket.status, 'open');
+  assert.match(mcp.insertQueries[0], /^\s*WITH inserted_ticket AS/);
+  assert.match(mcp.insertQueries[0], /INSERT INTO public\.conversation_messages/);
+  assert.match(mcp.selectQueries[0], /LEFT JOIN LATERAL/);
+});
+
+test('managed MCP repository returns the most recent job with each admin ticket', async () => {
+  const mcp = new FakeManagedMcp();
+  mcp.selectResults.push([{ ...TICKET_ROW, jobId: JOB_MESSAGE.jobId, jobStatus: 'running' }]);
+  const data = new CockroachMcpDataClient(mcp, () => TOKEN);
+
+  const tickets = await data.listTickets(25);
+
+  assert.equal(tickets[0]?.jobStatus, 'running');
+  assert.match(mcp.selectQueries[0], /ORDER BY t\.created_at DESC/);
+  assert.match(mcp.selectQueries[0], /LIMIT 25/);
 });
 
 test('claim and tool-call permits are tied to unique tokens and durable counters', async () => {
@@ -118,4 +162,3 @@ test('free-text values are escaped and cannot become executable SQL fragments', 
   assert.doesNotMatch(mcp.selectQueries[0], /shipping' OR true --/);
   assert.match(mcp.selectQueries[0], /LIMIT 3/);
 });
-

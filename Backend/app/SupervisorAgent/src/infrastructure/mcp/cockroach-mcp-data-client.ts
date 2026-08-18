@@ -6,11 +6,15 @@ import {
   agentJobSchema,
   conversationMessageSchema,
   jobStatusSchema,
+  newTicketSchema,
   planSchema,
+  ticketSummarySchema,
   type AgentJob,
   type ConversationMessage,
   type JobMessage,
+  type NewTicket,
   type ResolutionPlan,
+  type TicketSummary,
 } from '../../domain/contracts.js';
 import { positiveIntegerEnvironment, requiredEnvironment } from '../../config/environment.js';
 import {
@@ -38,6 +42,9 @@ export {
 /** These are application operations. Only the four orchestration tools are model-facing. */
 export const applicationOperationAllowlist = Object.freeze([
   'ticket_exists',
+  'create_ticket',
+  'get_ticket',
+  'list_tickets',
   'create_job',
   'get_job',
   'fail_job',
@@ -83,6 +90,23 @@ const conversationRowSchema = z.object({
   message: z.string(),
   timestamp: z.coerce.string().optional(),
 });
+
+const TICKET_COLUMNS = `
+  t.ticket_id::STRING AS "ticketId",
+  t.conversation_id::STRING AS "conversationId",
+  t.subject,
+  t.description,
+  t.category,
+  t.status,
+  t.created_at::STRING AS "createdAt",
+  t.updated_at::STRING AS "updatedAt",
+  latest_job.job_id::STRING AS "jobId",
+  latest_job.status AS "jobStatus",
+  latest_job.response`;
+
+function publicTicket(row: QueryRow): TicketSummary {
+  return ticketSummarySchema.parse(row);
+}
 
 const JOB_COLUMNS = `
   job_id::STRING AS "jobId",
@@ -143,6 +167,70 @@ export class CockroachMcpDataClient implements AgentDataPort {
       WHERE ticket_id = ${sqlUuid(ticketId)}
       LIMIT 1`);
     return rows.length === 1;
+  }
+
+  async createTicket(ticket: NewTicket): Promise<TicketSummary> {
+    const validated = newTicketSchema.parse(ticket);
+    await this.mcp.insert(`
+      WITH inserted_ticket AS (
+        INSERT INTO public.tickets (
+          ticket_id, conversation_id, subject, description, category, status
+        )
+        VALUES (
+          ${sqlUuid(validated.ticketId)},
+          ${sqlUuid(validated.conversationId)},
+          ${sqlString(validated.subject)},
+          ${sqlString(validated.description)},
+          ${sqlString(validated.category)},
+          'open'
+        )
+        ON CONFLICT (ticket_id) DO NOTHING
+        RETURNING ticket_id, conversation_id
+      )
+      INSERT INTO public.conversation_messages (
+        message_id, ticket_id, conversation_id, role, message
+      )
+      SELECT
+        gen_random_uuid(), ticket_id, conversation_id, 'user',
+        ${sqlString(validated.description)}
+      FROM inserted_ticket`);
+
+    const created = await this.getTicket(validated.ticketId);
+    if (!created) throw new Error('CockroachDB MCP did not create the ticket');
+    return created;
+  }
+
+  async getTicket(ticketId: string): Promise<TicketSummary | null> {
+    const rows = await this.mcp.select(`
+      SELECT ${TICKET_COLUMNS}
+      FROM public.tickets t
+      LEFT JOIN LATERAL (
+        SELECT job_id, status, response
+        FROM public.agent_jobs
+        WHERE ticket_id = t.ticket_id
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) AS latest_job ON true
+      WHERE t.ticket_id = ${sqlUuid(ticketId)}
+      LIMIT 1`);
+    return rows[0] ? publicTicket(rows[0]) : null;
+  }
+
+  async listTickets(limit: number): Promise<TicketSummary[]> {
+    const boundedLimit = z.number().int().min(1).max(100).parse(limit);
+    const rows = await this.mcp.select(`
+      SELECT ${TICKET_COLUMNS}
+      FROM public.tickets t
+      LEFT JOIN LATERAL (
+        SELECT job_id, status, response
+        FROM public.agent_jobs
+        WHERE ticket_id = t.ticket_id
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) AS latest_job ON true
+      ORDER BY t.created_at DESC
+      LIMIT ${boundedLimit}`);
+    return rows.map(publicTicket);
   }
 
   async createJob(message: JobMessage): Promise<AgentJob> {

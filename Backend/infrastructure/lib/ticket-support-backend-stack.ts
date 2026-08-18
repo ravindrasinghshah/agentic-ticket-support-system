@@ -79,7 +79,7 @@ export class TicketSupportBackendStack extends Stack {
       ...commonFunctionProps,
       entry: path.join(lambdaSourceDirectory, 'job-api.ts'),
       handler: 'handler',
-      description: 'Public job submission and status API',
+      description: 'Public ticket submission and status API',
       environment: {
         ...commonEnvironment,
         CORS_ALLOWED_ORIGIN: deploymentConfig.corsAllowedOrigin,
@@ -148,7 +148,7 @@ export class TicketSupportBackendStack extends Stack {
     );
 
     new CfnOutput(this, 'JobApiUrl', {
-      description: 'Public job submission and polling endpoint',
+      description: 'Public ticket and job API endpoint',
       value: jobApiUrl.url,
     });
     new CfnOutput(this, 'JobQueueUrl', { value: jobQueue.queueUrl });

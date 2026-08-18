@@ -17,11 +17,15 @@ deployment source of truth and synthesizes standard AWS CloudFormation.
 
 ## Request flow
 
-1. The public Function URL accepts `POST /jobs` and returns `202` with a job ID.
+1. The public Function URL accepts `POST /tickets`, creates the ticket plus initial conversation,
+   and returns `202` with ticket, conversation, and job IDs. `POST /jobs` remains available for an
+   existing ticket.
 2. The request Lambda creates durable job state through MCP and publishes a versioned SQS message.
 3. The supervisor Lambda invokes Groq through Strands, loads context first, forms and persists a
    plan, and runs at most three domain-tool calls through an allowlisted MCP boundary.
 4. Clients poll `GET /jobs/{jobId}` until the job is `completed`, `escalated`, or `failed`.
+   `GET /tickets/{ticketId}` supports customer lookup and `GET /tickets` supplies the demo admin
+   dashboard.
 5. Messages that exhaust three SQS deliveries move to a DLQ and are safely escalated.
 
 ## Build and test
@@ -80,4 +84,5 @@ See `infrastructure/README.md` for configuration precedence, environment-variabl
 profile usage.
 
 The Function URL is deliberately public for the demo. CORS is not authentication; use IAM or an
-application authorization layer before treating this deployment as production-ready.
+application authorization layer before treating this deployment as production-ready. In
+particular, the ticket list must be admin-authorized before real customer data is used.

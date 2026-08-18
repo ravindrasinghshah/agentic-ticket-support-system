@@ -8,6 +8,9 @@ fields.
 | Tool | Input | Output / required behavior |
 | --- | --- | --- |
 | `ticket_exists` | `{ ticketId }` | `{ exists: boolean }` |
+| `create_ticket` | `{ ticketId, conversationId, subject, description, category }` | Create an `open` ticket and its initial user conversation message |
+| `get_ticket` | `{ ticketId }` | Ticket with its most recent agent job, or `null` |
+| `list_tickets` | `{ limit }` | Newest tickets with their most recent agent jobs; hard limit of 100 |
 | `create_job` | versioned job message | Created job; insert as `queued` |
 | `get_job` | `{ jobId }` | Job or `null`; never return internal exception text |
 | `fail_job` | `{ jobId, errorCode }` | Conditionally change `queued` to `failed` |

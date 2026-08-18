@@ -27,6 +27,23 @@ export const jobStatusSchema = z.enum([
   'failed',
 ]);
 
+export const ticketStatusSchema = z.enum([
+  'open',
+  'processing',
+  'awaiting_customer',
+  'resolved',
+  'escalated',
+]);
+
+export const ticketCategorySchema = z.enum([
+  'delivery',
+  'returns',
+  'billing',
+  'account',
+  'product',
+  'other',
+]);
+
 export const agentJobSchema = z.object({
   jobId: uuidSchema,
   ticketId: uuidSchema,
@@ -41,6 +58,27 @@ export const agentJobSchema = z.object({
 });
 
 export type AgentJob = z.infer<typeof agentJobSchema>;
+
+export const newTicketSchema = z.object({
+  ticketId: uuidSchema,
+  conversationId: uuidSchema,
+  subject: z.string().trim().min(3).max(120),
+  description: z.string().trim().min(10).max(2_000),
+  category: ticketCategorySchema,
+});
+
+export type NewTicket = z.infer<typeof newTicketSchema>;
+
+export const ticketSummarySchema = newTicketSchema.extend({
+  status: ticketStatusSchema,
+  createdAt: z.coerce.string(),
+  updatedAt: z.coerce.string(),
+  jobId: uuidSchema.nullable(),
+  jobStatus: jobStatusSchema.nullable(),
+  response: z.string().nullable(),
+});
+
+export type TicketSummary = z.infer<typeof ticketSummarySchema>;
 
 export const conversationMessageSchema = z.object({
   role: z.enum(['user', 'assistant']),

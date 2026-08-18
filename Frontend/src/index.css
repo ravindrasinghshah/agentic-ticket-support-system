@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: #f4f7f7;
+  --color-ink: #17212b;
+  --color-navy: #102d35;
+  --color-teal: #0b8f82;
+  --color-teal-dark: #096b63;
+  --color-teal-light: #79ddd2;
+  --color-mint: #e5f6f2;
+  --font-display: "Aptos Display", "Segoe UI", sans-serif;
+  --font-sans: "Aptos", "Segoe UI", sans-serif;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    background: var(--color-canvas);
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+
+  ::selection {
+    background: #bcece5;
+    color: #102d35;
+  }
+}
+
+@layer components {
+  .surface-card {
+    @apply rounded-2xl border border-slate-200/90 bg-white shadow-[0_10px_35px_rgba(15,45,53,0.055)];
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-bold uppercase tracking-[0.17em] text-teal-dark;
+  }
+
+  .primary-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-navy px-5 py-3 text-sm font-bold text-white shadow-lg shadow-navy/15 transition hover:-translate-y-0.5 hover:bg-[#17414b] disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .secondary-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .icon-button {
+    @apply grid size-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-teal/30 hover:text-teal;
+  }
+}
+
+.hero-grid {
+  background-image:
+    linear-gradient(rgba(11, 143, 130, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(11, 143, 130, 0.05) 1px, transparent 1px),
+    radial-gradient(circle at 82% 18%, rgba(121, 221, 210, 0.26), transparent 30%);
+  background-size: 34px 34px, 34px 34px, 100% 100%;
+  mask-image: linear-gradient(to right, transparent, black 20%, black 90%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

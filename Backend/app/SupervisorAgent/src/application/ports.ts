@@ -4,7 +4,9 @@ import type {
   ConversationMessage,
   JobMessage,
   JsonValue,
+  NewTicket,
   ResolutionPlan,
+  TicketSummary,
 } from '../domain/contracts.js';
 
 export interface ClaimResult {
@@ -25,6 +27,9 @@ export interface ToolCallPermit {
 export interface AgentDataPort {
   disconnect(): Promise<void>;
   ticketExists(ticketId: string): Promise<boolean>;
+  createTicket(ticket: NewTicket): Promise<TicketSummary>;
+  getTicket(ticketId: string): Promise<TicketSummary | null>;
+  listTickets(limit: number): Promise<TicketSummary[]>;
   createJob(message: JobMessage): Promise<AgentJob>;
   getJob(jobId: string): Promise<AgentJob | null>;
   failJob(jobId: string, errorCode: string): Promise<void>;

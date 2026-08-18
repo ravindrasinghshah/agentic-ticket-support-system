@@ -19,7 +19,8 @@ SupervisorAgent/
 `-- test/                      # Tests arranged to mirror the source layers
 ```
 
-The three root files are intentionally small deployment entrypoints. Business flow begins in
+The request entrypoint exposes ticket creation/list/lookup plus job submission/polling. The three
+root files are intentionally small deployment entrypoints. Agent business flow begins in
 `src/application/process-job.ts`; the model never receives the raw MCP client, only the typed tools
 created by `src/application/orchestration-tools.ts`.
 
