@@ -1,0 +1,32 @@
+{
+  "name": "ticket-support-infrastructure",
+  "version": "0.1.0",
+  "description": "AWS CDK infrastructure for the asynchronous ticket supervisor",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc",
+    "test": "npm run build && node --test dist/test/**/*.test.js",
+    "presynth": "npm run build",
+    "synth": "cdk synth",
+    "prediff": "npm run build",
+    "diff": "cdk diff",
+    "predeploy": "npm run build && npm --prefix ../app/SupervisorAgent run db:check && npm --prefix ../app/SupervisorAgent run model:check",
+    "deploy": "cdk deploy",
+    "check": "npm test && npm run synth"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.263.0",
+    "constructs": "^10.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "aws-cdk": "^2.1135.1",
+    "esbuild": "^0.28.2",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.9.3"
+  }
+}

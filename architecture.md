@@ -1,5 +1,12 @@
 # ARCHITECTURE.md — Agentic Ticket Support System
 
+> **Runtime override (2026-08-10):** The AgentCore hosting, memory, and gateway details below are
+> superseded for the current v1 because the target AWS account cannot use Bedrock AgentCore. The
+> active runtime is the asynchronous Lambda/SQS design using Strands with Groq, documented in `Backend/README.md`, and
+> deployed by the TypeScript CDK app in `Backend/infrastructure`; orchestration state and tool results are durable in
+> CockroachDB through typed MCP operations. The business rules and ticket lifecycle below remain
+> the target product behavior.
+
 **This is the authoritative technical specification.** If any other document (including the
 original diagram) conflicts with this file, this file wins. The plan of record and build order
 live in [plan.md](plan.md); the visual companion is

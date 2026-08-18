@@ -1,0 +1,13 @@
+node_modules/
+dist/
+cdk.out/
+*.log
+
+# Local environment files. Never commit credentials or deployment-specific values.
+.env
+.env.*
+!.env.example
+
+# Local deployment configuration; commit only sanitized *.example.json templates.
+config/*.json
+!config/*.example.json

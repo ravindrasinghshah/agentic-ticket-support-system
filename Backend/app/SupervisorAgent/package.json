@@ -1,0 +1,33 @@
+{
+  "name": "SupervisorAgent",
+  "version": "0.1.0",
+  "description": "Asynchronous Lambda supervisor using Strands and Groq",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc",
+    "db:command": "npm run build && node dist/scripts/database.js",
+    "db:migrate": "npm run db:command -- migrate",
+    "db:seed": "npm run db:command -- seed",
+    "db:check": "npm run db:command -- check",
+    "db:setup": "npm run db:command -- setup",
+    "model:check": "npm run build && node dist/scripts/check-groq.js",
+    "test": "npm run build && node --test dist/test/**/*.test.js",
+    "check": "npm run test"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.1101.0",
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "@opentelemetry/api": "^1.9.0",
+    "@strands-agents/sdk": "^1.5.0",
+    "openai": "^6.45.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.152",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.6.0"
+  }
+}
