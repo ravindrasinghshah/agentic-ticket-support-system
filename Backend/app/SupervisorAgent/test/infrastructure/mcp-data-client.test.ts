@@ -148,7 +148,12 @@ test('terminal transition updates the job and ticket in one conditional MCP inse
 test('free-text values are escaped and cannot become executable SQL fragments', async () => {
   const mcp = new FakeManagedMcp();
   mcp.selectResults.push([]);
-  const data = new CockroachMcpDataClient(mcp, () => TOKEN);
+  const embedding = Array.from({ length: 384 }, (_, index) => index / 384);
+  const data = new CockroachMcpDataClient(
+    mcp,
+    () => TOKEN,
+    { embed: async () => embedding },
+  );
 
   await data.searchResolutions(
     JOB_MESSAGE.jobId,
@@ -160,5 +165,11 @@ test('free-text values are escaped and cannot become executable SQL fragments', 
   assert.equal(sqlString("customer's order"), "'customer''s order'");
   assert.match(mcp.selectQueries[0], /shipping'' OR true --/);
   assert.doesNotMatch(mcp.selectQueries[0], /shipping' OR true --/);
+  assert.match(mcp.selectQueries[0], /FROM public\.resolution_embeddings/);
+  assert.match(mcp.selectQueries[0], /embedding <-> '\[0,0\.00260417/);
+  assert.match(mcp.selectQueries[0], /ORDER BY distance/);
+  assert.match(mcp.selectQueries[0], /LIMIT 15/);
+  assert.match(mcp.selectQueries[0], /ORDER BY nearest\.distance/);
   assert.match(mcp.selectQueries[0], /LIMIT 3/);
+  assert.ok(mcp.selectQueries[0].length < 16_384);
 });

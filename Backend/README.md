@@ -6,8 +6,9 @@ CockroachDB Cloud MCP service. It does not depend on Bedrock model access or Age
 The Lambdas connect to `https://cockroachlabs.cloud/mcp` with a required
 `mcp-cluster-id` header and a service-account API key. For the current development-only setup, both
 are read from the ignored `infrastructure/.env` file and injected into the Lambda environment. The
-Groq API key is read from the same file but injected only into the supervisor Lambda. Production
-deployment should move both API keys to Secrets Manager.
+Groq and Hugging Face API keys are read from the same file but injected only into the supervisor
+Lambda. Hugging Face generates query embeddings for CockroachDB vector search. Production
+deployment should move all API keys to Secrets Manager.
 
 The supervisor package layout and dependency direction are documented in
 `app/SupervisorAgent/README.md`.
@@ -59,6 +60,9 @@ only when the deterministic demo ticket is wanted; production data is never seed
 
 The model receives only the local operations in `database/MCP_TOOL_CONTRACT.md`; arbitrary SQL and
 the native managed MCP query tools are intentionally not model-facing.
+
+`search_resolutions` embeds the agent query with `sentence-transformers/all-MiniLM-L6-v2`, searches
+the 384-dimensional vectors in `resolution_embeddings`, and returns the nearest FAQ text.
 
 ## Deployment
 

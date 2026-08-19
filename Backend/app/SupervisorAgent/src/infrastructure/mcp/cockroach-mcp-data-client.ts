@@ -18,6 +18,12 @@ import {
 } from '../../domain/contracts.js';
 import { positiveIntegerEnvironment, requiredEnvironment } from '../../config/environment.js';
 import {
+  EMBEDDING_DIMENSION,
+  EMBEDDING_MODEL,
+  HuggingFaceEmbeddingClient,
+  type EmbeddingClient,
+} from '../huggingface/embedding-client.js';
+import {
   cockroachCloudMcpHeaders,
   CockroachCloudMcpClient,
   COCKROACH_CLOUD_MCP_ENDPOINT,
@@ -30,6 +36,7 @@ import {
   sqlJson,
   sqlString,
   sqlUuid,
+  sqlVector,
   validateDatabaseName,
 } from './cockroach-sql.js';
 
@@ -154,6 +161,7 @@ export class CockroachMcpDataClient implements AgentDataPort {
   constructor(
     private readonly mcp: ManagedCockroachMcpClient,
     private readonly createToken: () => string = randomUUID,
+    private readonly embeddings: EmbeddingClient = new HuggingFaceEmbeddingClient(),
   ) {}
 
   disconnect(): Promise<void> {
@@ -458,31 +466,35 @@ export class CockroachMcpDataClient implements AgentDataPort {
     category: string | undefined,
     limit: number,
   ): Promise<unknown> {
-    // Turn free text into escaped values only; it can never become a SQL identifier or operator.
-    const terms = [...new Set(query.toLowerCase().match(/[a-z0-9]{2,}/g) ?? [])].slice(0, 8);
-    const textConditions = terms.length
-      ? terms
-          .map(
-            (term) =>
-              `lower(concat_ws(' ', r.title, r.summary, r.category)) LIKE ${sqlString(`%${term}%`)}`,
-          )
-          .join(' OR ')
-      : 'false';
+    const validatedQuery = z.string().trim().min(1).max(2_000).parse(query);
+    const queryEmbedding = await this.embeddings.embed(validatedQuery);
+    const vector = sqlVector(queryEmbedding, EMBEDDING_DIMENSION);
     const boundedLimit = z.number().int().min(1).max(5).parse(limit);
+    const candidateLimit = boundedLimit * 5;
     const rows = await this.mcp.select(`
+      WITH nearest AS (
+        SELECT
+          resolution_id,
+          embedding <-> ${vector} AS distance
+        FROM public.resolution_embeddings
+        ORDER BY distance
+        LIMIT ${candidateLimit}
+      )
       SELECT
         r.resolution_id::STRING AS "resolutionId",
         r.category,
         r.title,
-        r.summary
-      FROM public.resolution_articles r
+        r.summary,
+        nearest.distance
+      FROM nearest
+      JOIN public.resolution_articles r
+        ON r.resolution_id = nearest.resolution_id
       JOIN public.agent_jobs j ON j.job_id = ${sqlUuid(jobId)}
       WHERE r.active = true
-        AND (${textConditions})
         ${category ? `AND lower(r.category) = lower(${sqlString(category)})` : ''}
-      ORDER BY r.updated_at DESC
+      ORDER BY nearest.distance
       LIMIT ${boundedLimit}`);
-    return { resolutions: rows };
+    return { embeddingModel: EMBEDDING_MODEL, resolutions: rows };
   }
 
   async recordTicketNote(
@@ -622,5 +634,7 @@ export async function createMcpDataClient(): Promise<AgentDataPort> {
   const timeoutMs = positiveIntegerEnvironment('COCKROACH_CLOUD_MCP_TOOL_TIMEOUT_MS', 20_000);
   return new CockroachMcpDataClient(
     new CockroachCloudMcpClient(client, database, timeoutMs),
+    randomUUID,
+    new HuggingFaceEmbeddingClient(),
   );
 }

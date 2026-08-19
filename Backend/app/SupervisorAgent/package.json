@@ -12,12 +12,15 @@
     "db:seed": "npm run db:command -- seed",
     "db:check": "npm run db:command -- check",
     "db:setup": "npm run db:command -- setup",
+    "db:embed-faq": "npm run build && node dist/scripts/embed-faq.js",
+    "db:embed-faq:dry-run": "npm run build && node dist/scripts/embed-faq.js --dry-run",
     "model:check": "npm run build && node dist/scripts/check-groq.js",
     "test": "npm run build && node --test dist/test/**/*.test.js",
     "check": "npm run test"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "^3.1101.0",
+    "@huggingface/inference": "^4.13.27",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@opentelemetry/api": "^1.9.0",
     "@strands-agents/sdk": "^1.5.0",

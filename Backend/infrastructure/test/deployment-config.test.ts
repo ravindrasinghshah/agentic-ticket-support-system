@@ -37,6 +37,7 @@ describe('loadDeploymentConfig', () => {
           DEPLOYMENT_STAGE: 'development',
           COCKROACH_CLOUD_MCP_API_KEY: 'test-api-key',
           GROQ_API_KEY: 'test-groq-api-key',
+          HF_TOKEN: 'test-hugging-face-token',
         },
       });
 
@@ -69,6 +70,7 @@ describe('loadDeploymentConfig', () => {
           COCKROACH_CLOUD_MCP_API_KEY: 'environment-api-key',
           COCKROACH_CLOUD_DATABASE: 'support_override',
           GROQ_API_KEY: 'environment-groq-api-key',
+          HF_TOKEN: 'environment-hugging-face-token',
           GROQ_MODEL_ID: 'environment/model',
           SUPERVISOR_RESERVED_CONCURRENCY: '7',
         },
@@ -79,6 +81,7 @@ describe('loadDeploymentConfig', () => {
         '11111111-2222-4333-8444-555555555555',
       );
       assert.equal(config.groqApiKey, 'environment-groq-api-key');
+      assert.equal(config.hfToken, 'environment-hugging-face-token');
       assert.equal(config.groqModelId, 'environment/model');
       assert.equal(config.cockroachCloudDatabase, 'support_override');
       assert.equal(config.supervisorReservedConcurrency, 7);
@@ -98,6 +101,7 @@ describe('loadDeploymentConfig', () => {
         COCKROACH_CLOUD_DATABASE: 'ticket_support',
         CORS_ALLOWED_ORIGIN: 'https://support.example.com',
         GROQ_API_KEY: 'production-groq-api-key',
+        HF_TOKEN: 'production-hugging-face-token',
       },
     });
 
@@ -128,6 +132,7 @@ describe('loadDeploymentConfig', () => {
               DEPLOYMENT_STAGE: 'development',
               COCKROACH_CLOUD_MCP_API_KEY: 'test-api-key',
               GROQ_API_KEY: 'test-groq-api-key',
+              HF_TOKEN: 'test-hugging-face-token',
             },
           }),
         /Unknown deployment config fields/,
@@ -144,6 +149,7 @@ describe('loadDeploymentConfig', () => {
             COCKROACH_CLOUD_MCP_API_KEY: 'test-api-key',
             CORS_ALLOWED_ORIGIN: 'https://frontend.example/path',
             GROQ_API_KEY: 'test-groq-api-key',
+            HF_TOKEN: 'test-hugging-face-token',
           },
         }),
       /COCKROACH_CLOUD_CLUSTER_ID/,

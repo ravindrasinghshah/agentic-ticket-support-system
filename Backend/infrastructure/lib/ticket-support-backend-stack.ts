@@ -120,6 +120,7 @@ export class TicketSupportBackendStack extends Stack {
           AGENT_TIMEOUT_MS: "720000",
           GROQ_API_KEY: deploymentConfig.groqApiKey,
           GROQ_MODEL_ID: deploymentConfig.groqModelId,
+          HF_TOKEN: deploymentConfig.hfToken,
         },
         logGroup: this.createLogGroup("SupervisorLogGroup"),
         memorySize: 1024,
