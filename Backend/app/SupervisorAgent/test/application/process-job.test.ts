@@ -15,8 +15,14 @@ class FakeRunner implements AgentRunner {
 
 test('loads context before planning, persists tool results, and completes', async () => {
   const data = new FakeDataPort();
-  const runner = new FakeRunner(async ({ tools }) => {
-    assert.deepEqual(data.calls.slice(0, 3), ['claimJob', 'loadTicketContext', 'loadConversation']);
+  const runner = new FakeRunner(async ({ tools, resolutionMemory }) => {
+    assert.deepEqual(data.calls.slice(0, 4), [
+      'claimJob',
+      'loadTicketContext',
+      'loadConversation',
+      'searchResolutions',
+    ]);
+    assert.deepEqual(resolutionMemory, []);
     await tools.savePlan({ objective: 'Answer tracking question', steps: ['Read tracking'] });
     await tools.getTracking({});
     await tools.savePlan({ objective: 'Answer tracking question', steps: ['Respond with status'] });
@@ -33,6 +39,34 @@ test('loads context before planning, persists tool results, and completes', asyn
   assert.ok(data.calls.includes('recordToolResult:get_tracking'));
   assert.ok(data.calls.includes('appendMessage:assistant'));
   assert.ok(data.calls.includes('completeJob'));
+});
+
+test('completes directly from a high-confidence vector FAQ memory', async () => {
+  const data = new FakeDataPort();
+  data.resolutionSearchResult = {
+    embeddingModel: 'sentence-transformers/all-MiniLM-L6-v2',
+    resolutions: [{
+      title: 'Cannot sign in',
+      summary: 'Request a new password-reset link and use only the newest link.',
+      distance: 0.84,
+    }],
+  };
+  let agentRan = false;
+
+  await processJob(JOB_MESSAGE, 1, {
+    createDataClient: async () => data,
+    agentRunner: new FakeRunner(async () => {
+      agentRan = true;
+      return { outcome: 'escalated', response: 'unused' };
+    }),
+    timeoutMs: 1_000,
+  });
+
+  assert.equal(agentRan, false);
+  assert.ok(data.calls.includes('searchResolutions'));
+  assert.ok(data.calls.includes('appendMessage:assistant'));
+  assert.ok(data.calls.includes('completeJob'));
+  assert.equal(data.calls.some((call) => call.startsWith('savePlan')), false);
 });
 
 test('refuses domain tools until a plan is saved and escalates missing-plan output', async () => {

@@ -11,6 +11,27 @@ export interface ProcessJobDependencies {
   timeoutMs: number;
 }
 
+const MAX_FAQ_DISTANCE = 1;
+
+function trustedFaqResponse(memory: unknown): string | undefined {
+  if (!memory || typeof memory !== 'object') return undefined;
+  const resolutions = (memory as { resolutions?: unknown }).resolutions;
+  if (!Array.isArray(resolutions)) return undefined;
+  const first = resolutions[0];
+  if (!first || typeof first !== 'object') return undefined;
+  const { summary, distance } = first as { summary?: unknown; distance?: unknown };
+  const parsedDistance = typeof distance === 'number' ? distance : Number(distance);
+  if (
+    typeof summary !== 'string' ||
+    !summary.trim() ||
+    !Number.isFinite(parsedDistance) ||
+    parsedDistance > MAX_FAQ_DISTANCE
+  ) {
+    return undefined;
+  }
+  return summary.trim();
+}
+
 export async function processJob(
   message: JobMessage,
   attempt: number,
@@ -49,6 +70,51 @@ export async function processJob(
       message.conversationId,
     );
     const conversation = await data.loadConversation(message.ticketId, message.conversationId);
+    const contextRecord = context && typeof context === 'object'
+      ? context as Record<string, unknown>
+      : {};
+    const latestUserMessage = [...conversation]
+      .reverse()
+      .find((item) => item.role === 'user')?.message;
+    const memoryQuery = [
+      contextRecord.subject,
+      contextRecord.description,
+      latestUserMessage,
+    ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .join('\n')
+      .slice(0, 2_000);
+    const category = typeof contextRecord.category === 'string'
+      ? contextRecord.category
+      : undefined;
+    const resolutionMemory = await data.searchResolutions(
+      message.jobId,
+      memoryQuery || 'customer support request',
+      category,
+      3,
+    );
+    console.info(JSON.stringify({
+      event: 'vector_memory_loaded',
+      jobId: message.jobId,
+      embeddingModel: 'sentence-transformers/all-MiniLM-L6-v2',
+    }));
+    const faqResponse = trustedFaqResponse(resolutionMemory);
+    if (faqResponse) {
+      await data.appendMessage(
+        message.jobId,
+        message.ticketId,
+        message.conversationId,
+        'assistant',
+        faqResponse,
+      );
+      await data.completeJob(message.jobId, faqResponse);
+      console.info(JSON.stringify({
+        event: 'job_completed_from_vector_memory',
+        jobId: message.jobId,
+        ticketId: message.ticketId,
+        conversationId: message.conversationId,
+      }));
+      return;
+    }
     const orchestration = createOrchestrationTools(
       data,
       message,
@@ -59,6 +125,7 @@ export async function processJob(
     const outcome = await dependencies.agentRunner.run({
       context,
       conversation,
+      resolutionMemory,
       priorToolResults: claim.toolResults ?? [],
       tools: orchestration.tools,
       timeoutMs: dependencies.timeoutMs,

@@ -84,6 +84,7 @@ export interface OrchestrationTools {
 export interface AgentRunInput {
   context: unknown;
   conversation: ConversationMessage[];
+  resolutionMemory: unknown;
   priorToolResults: unknown[];
   tools: OrchestrationTools;
   timeoutMs: number;
