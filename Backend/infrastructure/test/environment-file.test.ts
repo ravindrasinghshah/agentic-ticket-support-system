@@ -26,6 +26,7 @@ describe('loadEnvironmentFile', () => {
       COCKROACH_CLOUD_DATABASE=ticket_support
       CORS_ALLOWED_ORIGIN=https://frontend.file.example
       GROQ_API_KEY=file-groq-api-key
+      HF_TOKEN=file-hugging-face-token
     `);
     const environment: NodeJS.ProcessEnv = {
       COCKROACH_CLOUD_CLUSTER_ID: '11111111-2222-4333-8444-555555555555',
@@ -45,6 +46,7 @@ describe('loadEnvironmentFile', () => {
       assert.equal(environment.COCKROACH_CLOUD_MCP_API_KEY, 'file-api-key');
       assert.equal(environment.COCKROACH_CLOUD_DATABASE, 'ticket_support');
       assert.equal(environment.GROQ_API_KEY, 'file-groq-api-key');
+      assert.equal(environment.HF_TOKEN, 'file-hugging-face-token');
     } finally {
       fixture.cleanup();
     }

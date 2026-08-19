@@ -24,6 +24,7 @@ const EXPECTED_SCHEMA = Object.freeze({
   orders: ['order_id', 'customer_name', 'item_description', 'order_status', 'ordered_at', 'created_at'],
   tickets: ['ticket_id', 'conversation_id', 'order_id', 'subject', 'description', 'category', 'status', 'created_at', 'updated_at'],
   resolution_articles: ['resolution_id', 'category', 'title', 'summary', 'active', 'created_at', 'updated_at'],
+  resolution_embeddings: ['resolution_id', 'embedding', 'embedding_model', 'content_hash', 'embedded_at'],
   agent_jobs: ['job_id', 'ticket_id', 'conversation_id', 'status', 'current_plan', 'plan_required', 'cycle_count', 'last_attempt', 'claim_token', 'last_tool_call_token', 'terminal_token', 'response', 'error_code', 'claimed_at', 'completed_at', 'created_at', 'updated_at'],
   conversation_messages: ['message_id', 'ticket_id', 'conversation_id', 'job_id', 'role', 'message', 'created_at'],
   tracking_events: ['tracking_event_id', 'order_id', 'tracking_status', 'carrier', 'location', 'details', 'event_at'],

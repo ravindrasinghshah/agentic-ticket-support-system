@@ -14,6 +14,7 @@ const deploymentConfig: DeploymentConfig = {
   corsAllowedOrigin: 'https://frontend.test.example',
   groqApiKey: 'test-groq-api-key',
   groqModelId: 'openai/gpt-oss-120b',
+  hfToken: 'test-hugging-face-token',
   supervisorReservedConcurrency: 5,
 };
 const app = new App();
@@ -56,6 +57,7 @@ describe('TicketSupportBackendStack', () => {
           AGENT_TIMEOUT_MS: '720000',
           GROQ_API_KEY: deploymentConfig.groqApiKey,
           GROQ_MODEL_ID: deploymentConfig.groqModelId,
+          HF_TOKEN: deploymentConfig.hfToken,
         }),
       },
     });
@@ -115,13 +117,13 @@ describe('TicketSupportBackendStack', () => {
       Cors: {
         AllowHeaders: ['content-type'],
         AllowMethods: ['GET', 'POST'],
-        AllowOrigins: [deploymentConfig.corsAllowedOrigin],
+        AllowOrigins: [deploymentConfig.corsAllowedOrigin, 'http://localhost:3000'],
         MaxAge: 300,
       },
     });
   });
 
-  it('injects the Groq key only into the supervisor and grants no Bedrock actions', () => {
+  it('injects model credentials only into the supervisor and grants no Bedrock actions', () => {
     const functions = template.findResources('AWS::Lambda::Function');
     const supervisor = Object.values(functions).find(
       (resource) =>
@@ -133,9 +135,14 @@ describe('TicketSupportBackendStack', () => {
       supervisor.Properties?.Environment?.Variables?.GROQ_API_KEY,
       deploymentConfig.groqApiKey,
     );
+    assert.equal(
+      supervisor.Properties?.Environment?.Variables?.HF_TOKEN,
+      deploymentConfig.hfToken,
+    );
     for (const resource of Object.values(functions)) {
       if (resource === supervisor) continue;
       assert.equal(resource.Properties?.Environment?.Variables?.GROQ_API_KEY, undefined);
+      assert.equal(resource.Properties?.Environment?.Variables?.HF_TOKEN, undefined);
     }
     assert.equal(JSON.stringify(template.toJSON()).includes('bedrock:InvokeModel'), false);
   });
@@ -154,6 +161,7 @@ describe('TicketSupportBackendStack', () => {
     assert.equal(parameters?.CorsAllowedOrigin, undefined);
     assert.equal(parameters?.GroqApiKey, undefined);
     assert.equal(parameters?.GroqModelId, undefined);
+    assert.equal(parameters?.HfToken, undefined);
     assert.equal(parameters?.SupervisorReservedConcurrency, undefined);
   });
 });

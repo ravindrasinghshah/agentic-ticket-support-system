@@ -30,6 +30,7 @@ export interface DeploymentConfig {
   readonly corsAllowedOrigin: string;
   readonly groqApiKey: string;
   readonly groqModelId: string;
+  readonly hfToken: string;
   readonly supervisorReservedConcurrency: number;
 }
 
@@ -140,6 +141,7 @@ export function loadDeploymentConfig(
     ),
   );
   const groqApiKey = requiredString(environment.GROQ_API_KEY, 'GROQ_API_KEY');
+  const hfToken = requiredString(environment.HF_TOKEN, 'HF_TOKEN');
   const groqModelId = requiredString(
     environment.GROQ_MODEL_ID ?? file.groqModelId ?? DEFAULT_GROQ_MODEL_ID,
     'GROQ_MODEL_ID',
@@ -162,6 +164,7 @@ export function loadDeploymentConfig(
     corsAllowedOrigin,
     groqApiKey,
     groqModelId,
+    hfToken,
     supervisorReservedConcurrency,
   };
 }

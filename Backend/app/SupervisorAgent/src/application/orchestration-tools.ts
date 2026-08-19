@@ -59,9 +59,13 @@ export function createOrchestrationTools(
       await data.recordToolResult(message.jobId, toolName, result);
       return toJsonValue(result);
     } catch (error) {
+      const errorMessage = error instanceof Error
+        ? error.message.replace(/[\r\n]+/g, ' ').slice(0, 500)
+        : 'Unknown tool error';
       await data.recordToolResult(message.jobId, toolName, {
         error: 'TOOL_FAILED',
         type: error instanceof Error ? error.name : 'UnknownError',
+        message: errorMessage,
       });
       throw error;
     }

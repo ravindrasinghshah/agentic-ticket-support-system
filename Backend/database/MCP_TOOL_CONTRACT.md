@@ -21,7 +21,7 @@ fields.
 | `begin_tool_call` | `{ jobId, toolName }` | Only run when `plan_required = false`; atomically increment `cycle_count` below 3 and set `plan_required = true`; return `{ allowed, cycleCount, reason? }` |
 | `record_tool_result` | `{ jobId, toolName, result }` | Insert the result for the current cycle; redact secrets server-side |
 | `get_tracking` | `{ jobId, orderId? }` | Read tracking data authorized for the job's ticket/customer |
-| `search_resolutions` | `{ jobId, query, category?, limit }` | Return at most five authorized resolution matches |
+| `search_resolutions` | `{ jobId, query, category?, limit }` | Embed the query and return at most five nearest authorized FAQ resolutions from the CockroachDB vector index |
 | `record_ticket_note` | `{ jobId, ticketId, note, visibility }` | Append-only constrained write; confirm the ticket matches the job |
 | `append_message` | `{ jobId, ticketId, conversationId, role, message }` | Idempotently append the conversation message, authorized through the stored job |
 | `complete_job` | `{ jobId, response }` | In one transaction, conditionally change `running` to `completed`, store response, and transition the ticket to `awaiting_customer`; return `{ applied }` |

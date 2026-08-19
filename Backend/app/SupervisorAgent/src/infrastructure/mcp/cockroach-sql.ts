@@ -15,6 +15,19 @@ export function sqlJson(value: unknown): string {
   return `${sqlString(encoded)}::JSONB`;
 }
 
+export function sqlVector(value: readonly number[], dimensions: number): string {
+  if (value.length !== dimensions) {
+    throw new Error(`Expected a ${dimensions}-dimensional vector, received ${value.length}`);
+  }
+  if (value.some((item) => !Number.isFinite(item))) {
+    throw new Error('Vector values must be finite numbers');
+  }
+  // Eight decimal places preserve retrieval ranking while keeping managed-MCP SQL below its
+  // 16,384-character query limit for 384-dimensional vectors.
+  const encoded = value.map((item) => Number(item.toFixed(8))).join(',');
+  return `${sqlString(`[${encoded}]`)}::VECTOR(${dimensions})`;
+}
+
 export function parseJsonColumn(value: unknown): unknown {
   if (typeof value !== 'string') return value;
   try {

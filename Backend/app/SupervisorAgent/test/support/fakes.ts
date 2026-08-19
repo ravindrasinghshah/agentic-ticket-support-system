@@ -25,6 +25,7 @@ export class FakeDataPort implements AgentDataPort {
   readonly tickets = new Map<string, TicketSummary>();
   claimResult: ClaimResult = { claimed: true, status: 'running', currentPlan: null };
   permitResults: ToolCallPermit[] = [];
+  resolutionSearchResult: unknown = [];
 
   async disconnect(): Promise<void> {
     this.calls.push('disconnect');
@@ -133,7 +134,7 @@ export class FakeDataPort implements AgentDataPort {
     _limit: number,
   ): Promise<unknown> {
     this.calls.push('searchResolutions');
-    return [];
+    return this.resolutionSearchResult;
   }
 
   async recordTicketNote(
