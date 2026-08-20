@@ -1,0 +1,20 @@
+{
+  "name": "@ticket-support/agentcore-healthcheck-infra",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "synth": "cdk synth"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.0.0",
+    "constructs": "^10.0.0",
+    "source-map-support": "^0.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "ts-node": "^10.0.0",
+    "typescript": "^5.6.0"
+  }
+}

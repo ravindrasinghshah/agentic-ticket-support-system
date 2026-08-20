@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.agentcore.aws.dev/v1/agentcore.json",
+  "name": "AgentcoreHealthcheck",
+  "version": 1,
+  "managedBy": "CDK",
+  "tags": {
+    "agentcore:created-by": "agentcore-cli",
+    "agentcore:project-name": "AgentcoreHealthcheck"
+  },
+  "runtimes": [
+    {
+      "name": "HealthcheckAgent",
+      "build": "CodeZip",
+      "entrypoint": "main.ts",
+      "codeLocation": "../app/HealthcheckAgent",
+      "runtimeVersion": "NODE_20",
+      "networkMode": "PUBLIC",
+      "protocol": "HTTP",
+      "envVars": [
+        {
+          "name": "BEDROCK_MODEL_ID",
+          "value": "REPLACE_ME"
+        }
+      ],
+      "tags": {
+        "project": "agentic-ticket-support-system",
+        "purpose": "agentcore-healthcheck"
+      }
+    }
+  ],
+  "memories": [],
+  "knowledgeBases": [],
+  "credentials": [],
+  "evaluators": [],
+  "onlineEvalConfigs": [],
+  "agentCoreGateways": [],
+  "policyEngines": [],
+  "configBundles": [],
+  "abTests": [],
+  "harnesses": [],
+  "datasets": [],
+  "payments": []
+}
